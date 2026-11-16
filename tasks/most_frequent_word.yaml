@@ -63,6 +63,10 @@ reference: |
               best = &tab[h];
           i = j;
       }
+      if (!best) {  /* unreachable (words > 0), but lets the analyzer prove it */
+          free(tab);
+          return NULL;
+      }
       char *out = malloc(best->len + 1);
       if (out) {
           for (size_t k = 0; k < best->len; k++) out[k] = (char)tolower((unsigned char)text[best->start + k]);

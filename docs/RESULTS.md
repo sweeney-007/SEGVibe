@@ -4,43 +4,51 @@ All numbers from an Intel i5-9600K iMac, CPU only. Model: Qwen2.5-Coder-1.5B-Ins
 
 ## 1. Detection: which layer catches which defect
 
-`scripts/eval_detect.py`: 17 reference solutions plus 94 defects (28 hand-written flawed versions, 66
+`scripts/eval_detect.py`: 17 reference solutions plus 95 defects (28 hand-written flawed versions, 67
 automatic mutations of the references: dropped `free`/`fclose`, allocations one byte short, `<` -> `<=`
 in loops, removed NULL checks, flipped comparisons). Caught = any finding of medium or high severity.
 
 | Expected | n | caught | right category |
 |---|---|---|---|
 | bug | 8 | 100% | 100% |
-| leak | 23 | 100% | 100% |
+| leak | 24 | 96% | 96% |
 | overuse | 9 | 100% | 100% |
-| vuln | 41 | 88% | 78% |
+| vuln | 41 | 85% | 78% |
 | crash | 13 | 100% | 100% |
-| **all** | **94** | **95%** | **90%** |
+| **all** | **95** | **93%** | **89%** |
 
 False positives: **0 of 17** references flagged.
 
 | Layer | catches | caught by it alone |
 |---|---|---|
-| static: compiler + Clang Static Analyzer | 36% | 1 |
+| static: compiler + Clang Static Analyzer | 35% | 0 |
 | AST rules (tree-sitter) | 13% | 0 |
-| hidden tests + ASan/UBSan | 44% | 30 |
+| hidden tests + ASan/UBSan | 43% | 30 |
 | fuzzing under sanitizers | 2% | 2 |
 | leak / heap tracker | 15% | 1 |
 | allocation-failure runs | 36% | 4 |
-| time and memory profile | 9% | 5 |
+| time and memory profile | 8% | 5 |
 
-- **No single layer is enough.** Tests with sanitizers catch the most, but 15 defects were found
-  only by other layers. Five were caught only by the time and memory profile: quadratic string
+- **No single layer is enough.** Tests with sanitizers catch the most, but 12 defects were caught
+  by a single other layer alone. Five were caught only by the time and memory profile: quadratic string
   building and memory spikes that pass every test. Four were caught only by making allocations fail:
   leaks and crashes on out-of-memory paths that normal runs never take.
 - **Static analysis is broad but not decisive.** It flags a third of the defects, nearly always
   together with a runtime check. Its value is the exact line and path it reports, which goes into
   the repair prompt.
-- **Misses (5).** Two are equivalent mutants: a stack sized `n` where `n` is enough, and a loop
-  that frees a slot that is always NULL. Two are reads one past the data but inside a larger
-  buffer: ASan sees no error, and MemorySanitizer, which would see the uninitialized read, does not
-  run on macOS. One more miss (`url_decode` with `>=` turned into `>` for 'a') was a gap in the
-  hidden tests; that test case has since been added.
+- **Misses (7).** Most are equivalent or near-equivalent mutants that no check can see:
+  - a stack sized `n` where `n` is enough (`is_balanced`);
+  - a removed `free` in a branch that never runs (`most_frequent_word`, the `if (!best)` guard);
+  - a loop that now also reads the string's terminating NUL, which is harmless (`most_frequent_word`,
+    line 27; an earlier run "caught" it only through a spurious analyzer warning, see below);
+  - loops that read or free one slot past the data but inside a larger buffer, or a slot that is
+    always NULL (`most_frequent_word` line 36, `read_lines`, `split_words`): ASan sees no error, and
+    MemorySanitizer, which would see an uninitialized read, does not run on macOS.
+- **Run-to-run changes.** Perf runs now get a fixed 1 MB stack. The input size is chosen by timing, so
+  with the default 8 MB stack a recursive `list_free` overflowed on one machine and not on another
+  (it passed on the Linux CI runner). The `most_frequent_word` reference also gained an `if (!best)`
+  guard, because newer Clang analyzers flag a null dereference they cannot rule out. That warning was
+  what had "caught" the line-27 mutant before; the previous run reported 95% of 94.
 - **Vulnerabilities in the wrong category (78% vs 88%).** Off-by-one mutants often show up first as
   wrong results or analyzer warnings rather than as an overflow. They are still caught.
 

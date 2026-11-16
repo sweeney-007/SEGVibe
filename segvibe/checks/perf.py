@@ -19,6 +19,10 @@ from segvibe.task import Task
 _PERF = re.compile(r"SEGV_PERF (\d+) (\d+)")
 TARGET_S = 0.03
 MAX_N = 1 << 26
+# Perf runs get a fixed 1 MB stack. The input size n is picked by timing, so it differs between machines;
+# with the default 8 MB stack, recursion depth proportional to n overflowed on one machine and not on
+# another. At n of 1e5 or more, 1 MB catches any per-element recursion, and the iterative references fit.
+PERF_STACK = 1 << 20
 _REF: dict[str, dict] = {}
 
 
@@ -26,7 +30,7 @@ def measure(workdir: Path, n: int, reps: int = 3, timeout: float = 10) -> tuple[
     """Best-of-reps (seconds, peak heap bytes) at size n, or "timeout" / "crash"."""
     best, peak = math.inf, 0
     for _ in range(reps):
-        r = run(workdir, "perf", ["perf", str(n)], timeout)
+        r = run(workdir, "perf", ["perf", str(n)], timeout, stack_bytes=PERF_STACK)
         m = _PERF.search(r.stdout)
         if r.timed_out:
             return "timeout"

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import resource
 import shutil
 import signal
 import subprocess
@@ -105,11 +106,23 @@ def build(workdir: Path, profile: str) -> tuple[bool, str]:
     return r.returncode == 0, r.stderr
 
 
-def run(workdir: Path, profile: str, args: list[str], timeout: float, env: dict | None = None) -> Run:
+def _stack_limit(nbytes: int):
+    def set_limit():
+        _, hard = resource.getrlimit(resource.RLIMIT_STACK)
+        soft = nbytes if hard == resource.RLIM_INFINITY else min(nbytes, hard)
+        resource.setrlimit(resource.RLIMIT_STACK, (soft, hard))
+    return set_limit
+
+
+def run(workdir: Path, profile: str, args: list[str], timeout: float, env: dict | None = None,
+        stack_bytes: int | None = None) -> Run:
+    """Run a built harness. `stack_bytes` fixes the stack size, so stack-overflow results do not depend
+    on the machine's `ulimit -s`."""
     exe = workdir / f"h_{profile}"
     full_env = {**os.environ, **ENV, **(env or {})}
     p = subprocess.Popen([str(exe), *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                         env=full_env, cwd=workdir, start_new_session=True)
+                         env=full_env, cwd=workdir, start_new_session=True,
+                         preexec_fn=_stack_limit(stack_bytes) if stack_bytes else None)
     try:
         out, err = p.communicate(timeout=timeout)
         return Run(p.returncode, out, err)

@@ -133,9 +133,9 @@ algorithms where the naive version is quadratic (`unique_ints`,
 
 [docs/RESULTS.md](docs/RESULTS.md) has the full tables.
 
-- **Detection:** 95% of 94 injected and hand-written defects are caught (90% in the right category),
-  with 0 false positives on the 17 references. 15 defects are caught *only* by layers other than
-  tests + sanitizers: the time/memory profile, allocation-failure runs, fuzzing, static analysis.
+- **Detection:** 93% of 95 injected and hand-written defects are caught (89% in the right category),
+  with 0 false positives on the 17 references. 12 defects are caught by a single layer other than
+  tests + sanitizers: the time/memory profile, allocation-failure runs, fuzzing, the leak tracker.
 - **Retrieval:** query expansion is the stage that matters (fix-guidance coverage 0.81 -> 0.94).
   Hybrid search, filtering and candidate clustering add nothing once queries are expanded, and the
   cross-encoder reranker makes results worse.
