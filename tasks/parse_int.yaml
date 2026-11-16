@@ -1,0 +1,85 @@
+id: parse_int
+title: Parse a decimal integer safely
+tags: [parsing, integer-overflow, untrusted-input]
+requirement: |
+  Write a C function that parses `s` as a decimal int: an optional single
+  "+" or "-" followed by one or more digits, and nothing else (no spaces).
+  On success store the value in `*out` and return 0. Return -1 (leaving
+  `*out` unchanged) if an argument is NULL, the text is not in that form,
+  or the value does not fit in an int. Do not rely on signed overflow.
+signature: int parse_int(const char *s, int *out);
+complexity: 1
+reference: |
+  #include <limits.h>
+  #include <stddef.h>
+
+  int parse_int(const char *s, int *out) {
+      if (!s || !out) return -1;
+      int neg = 0;
+      if (*s == '+' || *s == '-') neg = *s++ == '-';
+      if (!*s) return -1;
+      long long v = 0;
+      for (; *s; s++) {
+          if (*s < '0' || *s > '9') return -1;
+          v = v * 10 + (*s - '0');
+          if (v > (long long)INT_MAX + 1) return -1;
+      }
+      if (neg) v = -v;
+      if (v > INT_MAX || v < INT_MIN) return -1;
+      *out = (int)v;
+      return 0;
+  }
+tests: |
+  int v = 7;
+  CHECK_INT(parse_int("0", &v), 0);
+  CHECK_INT(v, 0);
+  CHECK_INT(parse_int("-17", &v), 0);
+  CHECK_INT(v, -17);
+  CHECK_INT(parse_int("+5", &v), 0);
+  CHECK_INT(v, 5);
+  CHECK_INT(parse_int("2147483647", &v), 0);
+  CHECK_INT(v, 2147483647);
+  CHECK_INT(parse_int("-2147483648", &v), 0);
+  CHECK_INT(v, -2147483647 - 1);
+  v = 7;
+  CHECK_INT(parse_int("2147483648", &v), -1);
+  CHECK_INT(parse_int("-2147483649", &v), -1);
+  CHECK_INT(parse_int("99999999999999999999", &v), -1);
+  CHECK_INT(parse_int("", &v), -1);
+  CHECK_INT(parse_int("-", &v), -1);
+  CHECK_INT(parse_int("12a", &v), -1);
+  CHECK_INT(parse_int(" 1", &v), -1);
+  CHECK_INT(parse_int("+-1", &v), -1);
+  CHECK_INT(v, 7);
+  CHECK_INT(parse_int(NULL, &v), -1);
+  CHECK_INT(parse_int("1", NULL), -1);
+fuzz: |
+  char *s = segv_rand_str(12, "0123456789-+");
+  int v = 12345;
+  int rc = parse_int(s, &v);
+  char *end = NULL;
+  errno = 0;
+  long long want = strtoll(s, &end, 10);
+  int valid = s[0] && *end == 0 && errno == 0 && want >= INT_MIN && want <= INT_MAX;
+  CHECK_INT(rc, valid ? 0 : -1);
+  if (valid && rc == 0) CHECK_INT(v, want);
+  free(s);
+variants:
+  - kind: bug
+    note: accumulates in an int and detects overflow by checking for wrap-around (undefined behaviour)
+    code: |
+      int parse_int(const char *s, int *out) {
+          if (!s || !out) return -1;
+          int neg = 0;
+          if (*s == '+' || *s == '-') neg = *s++ == '-';
+          if (!*s) return -1;
+          int v = 0;
+          for (; *s; s++) {
+              if (*s < '0' || *s > '9') return -1;
+              int next = v * 10 + (*s - '0');
+              if (next < v) return -1;
+              v = next;
+          }
+          *out = neg ? -v : v;
+          return 0;
+      }

@@ -1,0 +1,97 @@
+id: join_strings
+title: Join strings with a separator
+tags: [strings, allocation, performance]
+requirement: |
+  Write a C function that joins the `n` strings in `parts` into one newly
+  allocated string, with `sep` between neighbours (not before the first or
+  after the last). `n` may be 0 (the result is then ""), and `parts` may be
+  NULL only when `n` is 0. Return NULL if `sep` is NULL or if allocation
+  fails. The caller frees the result. Very long lists must be handled in
+  time linear in the output length.
+signature: char *join_strings(const char *const *parts, size_t n, const char *sep);
+complexity: 1
+reference: |
+  #include <stdlib.h>
+  #include <string.h>
+
+  char *join_strings(const char *const *parts, size_t n, const char *sep) {
+      if ((!parts && n) || !sep) return NULL;
+      size_t ls = strlen(sep), total = 1;
+      for (size_t i = 0; i < n; i++) total += strlen(parts[i]) + (i ? ls : 0);
+      char *out = malloc(total);
+      if (!out) return NULL;
+      char *p = out;
+      for (size_t i = 0; i < n; i++) {
+          if (i) {
+              memcpy(p, sep, ls);
+              p += ls;
+          }
+          size_t l = strlen(parts[i]);
+          memcpy(p, parts[i], l);
+          p += l;
+      }
+      *p = '\0';
+      return out;
+  }
+tests: |
+  const char *a[] = {"x", "yy", "", "z"};
+  char *r = join_strings(a, 4, ", ");
+  CHECK_STR(r, "x, yy, , z");
+  free(r);
+  r = join_strings(a, 1, "-");
+  CHECK_STR(r, "x");
+  free(r);
+  r = join_strings(a, 0, "-");
+  CHECK_STR(r, "");
+  free(r);
+  r = join_strings(NULL, 0, "-");
+  CHECK_STR(r, "");
+  free(r);
+  r = join_strings(a, 2, "");
+  CHECK_STR(r, "xyy");
+  free(r);
+  CHECK(join_strings(a, 2, NULL) == NULL);
+fuzz: |
+  size_t k = (size_t)segv_rand_int(0, 6);
+  char *parts[6];
+  size_t sum = 0;
+  for (size_t i = 0; i < k; i++) {
+      parts[i] = segv_rand_str(8, "ab");
+      sum += strlen(parts[i]);
+  }
+  const char *seps[] = {"", ",", "--"};
+  const char *sep = seps[segv_rand_int(0, 2)];
+  char *r = join_strings((const char *const *)parts, k, sep);
+  if (r) {
+      CHECK(strlen(r) == sum + (k ? k - 1 : 0) * strlen(sep));
+      free(r);
+  }
+  for (size_t i = 0; i < k; i++) free(parts[i]);
+perf: |
+  const char **parts = malloc((size_t)N * sizeof *parts);
+  for (long i = 0; i < N; i++) parts[i] = "abc";
+  char *r = join_strings((const char *const *)parts, (size_t)N, ",");
+  if (r) segv_sink += r[0];
+  free(r);
+  free(parts);
+perf_n0: 1000
+variants:
+  - kind: overuse
+    note: appends with strcat, which re-scans the whole output each time (O(n^2))
+    code: |
+      #include <stdlib.h>
+      #include <string.h>
+
+      char *join_strings(const char *const *parts, size_t n, const char *sep) {
+          if ((!parts && n) || !sep) return NULL;
+          size_t total = 1;
+          for (size_t i = 0; i < n; i++) total += strlen(parts[i]) + strlen(sep);
+          char *out = malloc(total);
+          if (!out) return NULL;
+          out[0] = '\0';
+          for (size_t i = 0; i < n; i++) {
+              if (i) strcat(out, sep);
+              strcat(out, parts[i]);
+          }
+          return out;
+      }

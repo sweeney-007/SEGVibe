@@ -1,0 +1,19 @@
+`torch_dtype` is deprecated! Use `dtype` instead!
+The following generation flags are not valid and may be ignored: ['temperature', 'top_p', 'top_k']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+[21:57:56] plan     done       Design Plan:
+[22:00:35] analyze  accepted   tests 10/11, found: bug
+                              tests 10/11, found: bug | 2 function(s), max complexity 16 (is_balanced), max nesting 3, design penalty 4.0
+[22:00:38] retrieve done       R-edge-cases, CWE-684
+[22:03:08] fix      unchanged  the model returned the code unchanged; sampling a different answer
+[22:06:27] analyze  rejected   fix version was rejected because no improvement: tests 0/0, found: vuln vs best tests 10/11, found: bug
+                              tests 0/0, found: vuln | 2 function(s), max complexity 17 (is_balanced), max nesting 3, design penalty 5.0
+[22:06:27] retrieve done       R-edge-cases, CWE-684
+[22:08:31] fix      unchanged  the model returned the code unchanged; sampling a different answer
+[22:11:20] analyze  rejected   fix version was rejected because no improvement: tests 10/11, found: bug vs best tests 10/11, found: bug
+                              tests 10/11, found: bug | 2 function(s), max complexity 17 (is_balanced), max nesting 3, design penalty 5.0
+[22:11:20] retrieve done       R-edge-cases, CWE-684
+[22:13:30] fix      unchanged  the model returned the code unchanged; sampling a different answer
+[22:16:26] analyze  rejected   fix version was rejected because no improvement: tests 10/11, found: bug vs best tests 10/11, found: bug
+                              tests 10/11, found: bug | 2 function(s), max complexity 17 (is_balanced), max nesting 3, design penalty 5.0
+
+stopped: 3 rejected versions in a row; best version 1: tests 10/11, found: bug, 2 function(s), max complexity 16 (is_balanced), max nesting 3, design penalty 4.0; 0 regression test(s) added

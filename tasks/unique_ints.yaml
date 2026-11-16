@@ -1,0 +1,110 @@
+id: unique_ints
+title: Remove duplicates, keeping first occurrences
+tags: [arrays, performance]
+requirement: |
+  Write a C function that removes duplicate values from the array `a` of
+  length `n` in place, keeping the first occurrence of each value in the
+  original order, and returns the new length. Arrays can have millions of
+  elements, so it must run in O(n log n) time or better (extra memory is
+  fine). If `a` is NULL or `n` is 0 return 0. If memory allocation fails,
+  leave `a` unchanged and return (size_t)-1.
+signature: size_t unique_ints(int *a, size_t n);
+complexity: 1
+reference: |
+  #include <stdlib.h>
+
+  typedef struct {
+      int v;
+      size_t i;
+  } Pair;
+
+  static int cmp_pair(const void *x, const void *y) {
+      const Pair *a = x, *b = y;
+      if (a->v != b->v) return (a->v > b->v) - (a->v < b->v);
+      return (a->i > b->i) - (a->i < b->i);
+  }
+
+  size_t unique_ints(int *a, size_t n) {
+      if (!a || n == 0) return 0;
+      Pair *p = malloc(n * sizeof *p);
+      unsigned char *keep = calloc(n, 1);
+      if (!p || !keep) {
+          free(p);
+          free(keep);
+          return (size_t)-1;
+      }
+      for (size_t i = 0; i < n; i++) p[i] = (Pair){a[i], i};
+      qsort(p, n, sizeof *p, cmp_pair);
+      for (size_t i = 0; i < n; i++)
+          if (i == 0 || p[i].v != p[i - 1].v) keep[p[i].i] = 1;
+      size_t k = 0;
+      for (size_t i = 0; i < n; i++)
+          if (keep[i]) a[k++] = a[i];
+      free(p);
+      free(keep);
+      return k;
+  }
+tests: |
+  int a[] = {3, 1, 3, 2, 1};
+  size_t k = unique_ints(a, 5);
+  CHECK_INT(k, 3);
+  if (k == 3) {
+      CHECK_INT(a[0], 3);
+      CHECK_INT(a[1], 1);
+      CHECK_INT(a[2], 2);
+  }
+  int b[] = {5, 5, 5};
+  k = unique_ints(b, 3);
+  CHECK_INT(k, 1);
+  if (k == 1) CHECK_INT(b[0], 5);
+  int c[] = {INT_MAX, INT_MIN, INT_MAX, 0, INT_MIN};
+  k = unique_ints(c, 5);
+  CHECK_INT(k, 3);
+  if (k == 3) {
+      CHECK_INT(c[0], INT_MAX);
+      CHECK_INT(c[1], INT_MIN);
+      CHECK_INT(c[2], 0);
+  }
+  CHECK_INT(unique_ints(a, 0), 0);
+  CHECK_INT(unique_ints(NULL, 4), 0);
+fuzz: |
+  size_t n = (size_t)segv_rand_int(0, 30);
+  int *a = segv_rand_ints(n, 0, 9);
+  int *orig = segv_rand_ints(n, 0, 0);
+  memcpy(orig, a, n * sizeof *a);
+  size_t k = unique_ints(a, n);
+  if (k != (size_t)-1) {
+      size_t m = 0;
+      for (size_t i = 0; i < n; i++) {
+          int seen = 0;
+          for (size_t j = 0; j < i; j++) seen |= orig[j] == orig[i];
+          if (!seen) {
+              CHECK(m < k && a[m] == orig[i]);
+              m++;
+          }
+      }
+      CHECK(m == k);
+  }
+  free(a);
+  free(orig);
+perf: |
+  int *a = segv_rand_ints((size_t)N, 0, (int)N);
+  segv_sink += (long)unique_ints(a, (size_t)N);
+  free(a);
+perf_n0: 1000
+variants:
+  - kind: overuse
+    note: checks each value against everything kept so far (O(n^2))
+    code: |
+      #include <stddef.h>
+
+      size_t unique_ints(int *a, size_t n) {
+          if (!a) return 0;
+          size_t k = 0;
+          for (size_t i = 0; i < n; i++) {
+              size_t j = 0;
+              while (j < k && a[j] != a[i]) j++;
+              if (j == k) a[k++] = a[i];
+          }
+          return k;
+      }

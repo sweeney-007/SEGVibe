@@ -1,0 +1,161 @@
+id: two_sum
+title: Find two values with a given sum
+tags: [arrays, integer-overflow, performance]
+requirement: |
+  Write a C function that looks for indices i < j with a[i] + a[j] equal to
+  `target`, where the sum is the exact mathematical sum (values can be any
+  int, so the addition must not overflow). If a pair exists, store it in
+  `*i` and `*j` and return 1 (any valid pair is accepted); otherwise return
+  0. Return 0 if a pointer argument is NULL, and -1 if memory allocation
+  fails. Arrays can have millions of elements, so it must run in O(n log n)
+  time or better.
+signature: int two_sum(const int *a, size_t n, int target, size_t *i, size_t *j);
+complexity: 1
+reference: |
+  #include <stdlib.h>
+
+  typedef struct {
+      int v;
+      size_t i;
+  } Pair;
+
+  static int cmp_pair(const void *x, const void *y) {
+      const Pair *a = x, *b = y;
+      return (a->v > b->v) - (a->v < b->v);
+  }
+
+  int two_sum(const int *a, size_t n, int target, size_t *i, size_t *j) {
+      if (!a || !i || !j || n < 2) return 0;
+      Pair *p = malloc(n * sizeof *p);
+      if (!p) return -1;
+      for (size_t k = 0; k < n; k++) p[k] = (Pair){a[k], k};
+      qsort(p, n, sizeof *p, cmp_pair);
+      size_t lo = 0, hi = n - 1;
+      int found = 0;
+      while (lo < hi) {
+          long long s = (long long)p[lo].v + p[hi].v;
+          if (s == target) {
+              found = 1;
+              break;
+          }
+          if (s < target) lo++;
+          else hi--;
+      }
+      if (found) {
+          size_t x = p[lo].i, y = p[hi].i;
+          *i = x < y ? x : y;
+          *j = x < y ? y : x;
+      }
+      free(p);
+      return found;
+  }
+helpers: |
+  static int has_pair(const int *a, size_t n, int target) {
+      for (size_t x = 0; x < n; x++)
+          for (size_t y = x + 1; y < n; y++)
+              if ((long long)a[x] + a[y] == target) return 1;
+      return 0;
+  }
+
+  static void check_two_sum(const int *a, size_t n, int target) {
+      size_t i = 99, j = 99;
+      int rc = two_sum(a, n, target, &i, &j);
+      if (rc < 0) return;
+      CHECK_INT(rc, has_pair(a, n, target));
+      if (rc == 1) {
+          CHECK(i < j && j < n);
+          if (i < j && j < n) CHECK((long long)a[i] + a[j] == target);
+      }
+  }
+tests: |
+  int a[] = {2, 7, 11, 15};
+  check_two_sum(a, 4, 9);
+  check_two_sum(a, 4, 26);
+  int b[] = {1, 2, 3};
+  check_two_sum(b, 3, 7);
+  int c[] = {INT_MAX, INT_MIN, 0};
+  check_two_sum(c, 3, -1);
+  int d[] = {INT_MAX, 1};
+  check_two_sum(d, 2, INT_MIN);
+  int e[] = {INT_MIN, -1};
+  check_two_sum(e, 2, INT_MAX);
+  int f[] = {3, 3};
+  check_two_sum(f, 2, 6);
+  check_two_sum(f, 1, 6);
+  check_two_sum(f, 0, 6);
+  size_t i, j;
+  CHECK_INT(two_sum(NULL, 2, 0, &i, &j), 0);
+fuzz: |
+  size_t n = (size_t)segv_rand_int(0, 12);
+  int big = (int)segv_rand_int(0, 1);
+  int *a = big ? segv_rand_ints(n, INT_MIN, INT_MAX) : segv_rand_ints(n, -5, 5);
+  int target = big ? (int)segv_rand_int(INT_MIN, INT_MAX) : (int)segv_rand_int(-10, 10);
+  if (big && n >= 2 && segv_rand_int(0, 1)) {
+      long long s = (long long)a[0] + a[1];
+      target = s >= INT_MIN && s <= INT_MAX ? (int)s : (int)(unsigned)(long long)s;
+  }
+  check_two_sum(a, n, target);
+  free(a);
+perf: |
+  int *a = segv_rand_ints((size_t)N, 0, (int)N * 4);
+  size_t i, j;
+  segv_sink += two_sum(a, (size_t)N, -1, &i, &j);
+  free(a);
+perf_n0: 1000
+variants:
+  - kind: overuse
+    note: tries every pair (O(n^2))
+    code: |
+      #include <stddef.h>
+
+      int two_sum(const int *a, size_t n, int target, size_t *i, size_t *j) {
+          if (!a || !i || !j) return 0;
+          for (size_t x = 0; x < n; x++)
+              for (size_t y = x + 1; y < n; y++)
+                  if ((long long)a[x] + a[y] == target) {
+                      *i = x;
+                      *j = y;
+                      return 1;
+                  }
+          return 0;
+      }
+  - kind: bug
+    note: adds the two ints directly, which overflows (undefined behaviour) for large values
+    code: |
+      #include <stdlib.h>
+
+      typedef struct {
+          int v;
+          size_t i;
+      } Pair;
+
+      static int cmp_pair(const void *x, const void *y) {
+          const Pair *a = x, *b = y;
+          return (a->v > b->v) - (a->v < b->v);
+      }
+
+      int two_sum(const int *a, size_t n, int target, size_t *i, size_t *j) {
+          if (!a || !i || !j || n < 2) return 0;
+          Pair *p = malloc(n * sizeof *p);
+          if (!p) return -1;
+          for (size_t k = 0; k < n; k++) p[k] = (Pair){a[k], k};
+          qsort(p, n, sizeof *p, cmp_pair);
+          size_t lo = 0, hi = n - 1;
+          int found = 0;
+          while (lo < hi) {
+              int s = p[lo].v + p[hi].v;
+              if (s == target) {
+                  found = 1;
+                  break;
+              }
+              if (s < target) lo++;
+              else hi--;
+          }
+          if (found) {
+              size_t x = p[lo].i, y = p[hi].i;
+              *i = x < y ? x : y;
+              *j = x < y ? y : x;
+          }
+          free(p);
+          return found;
+      }

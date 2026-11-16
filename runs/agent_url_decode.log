@@ -1,0 +1,16 @@
+`torch_dtype` is deprecated! Use `dtype` instead!
+The following generation flags are not valid and may be ignored: ['temperature', 'top_p', 'top_k']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+[22:21:22] plan     done       Sure! Below is a detailed design plan for the `url_decode` function in C:
+[22:23:36] analyze  accepted   tests 0/0, found: vuln
+                              tests 0/0, found: vuln | 2 function(s), max complexity 9 (url_decode), max nesting 4, design penalty 0.2
+[22:23:39] retrieve done       R-string-size, CWE-122
+[22:26:04] analyze  rejected   fix version was rejected because no improvement: tests 0/0, found: vuln vs best tests 0/0, found: vuln
+                              tests 0/0, found: vuln | 2 function(s), max complexity 9 (url_decode), max nesting 4, design penalty 0.2
+[22:26:04] retrieve done       R-string-size, CWE-122
+[22:28:33] analyze  rejected   fix version was rejected because no improvement: tests 0/0, found: vuln vs best tests 0/0, found: vuln
+                              tests 0/0, found: vuln | 2 function(s), max complexity 9 (url_decode), max nesting 4, design penalty 0.2
+[22:28:33] retrieve done       R-string-size, CWE-122
+[22:30:59] analyze  rejected   fix version was rejected because no improvement: tests 0/0, found: vuln vs best tests 0/0, found: vuln
+                              tests 0/0, found: vuln | 2 function(s), max complexity 9 (url_decode), max nesting 4, design penalty 0.2
+
+stopped: 3 rejected versions in a row; best version 1: tests 0/0, found: vuln, 2 function(s), max complexity 9 (url_decode), max nesting 4, design penalty 0.2; 0 regression test(s) added

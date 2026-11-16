@@ -1,0 +1,122 @@
+id: replace_all
+title: Replace every occurrence of a substring
+tags: [strings, allocation]
+requirement: |
+  Write a C function that returns a newly allocated copy of `s` in which
+  every non-overlapping occurrence of `from`, scanning left to right, is
+  replaced by `to`. Return NULL if any argument is NULL, if `from` is
+  empty, or if allocation fails. The caller frees the result.
+signature: char *replace_all(const char *s, const char *from, const char *to);
+complexity: 1
+reference: |
+  #include <stdlib.h>
+  #include <string.h>
+
+  char *replace_all(const char *s, const char *from, const char *to) {
+      if (!s || !from || !to || !*from) return NULL;
+      size_t lf = strlen(from), lt = strlen(to), hits = 0;
+      for (const char *p = strstr(s, from); p; p = strstr(p + lf, from)) hits++;
+      size_t n = strlen(s) - hits * lf + hits * lt;
+      char *out = malloc(n + 1);
+      if (!out) return NULL;
+      char *o = out;
+      const char *p = s, *q;
+      while ((q = strstr(p, from))) {
+          memcpy(o, p, (size_t)(q - p));
+          o += q - p;
+          memcpy(o, to, lt);
+          o += lt;
+          p = q + lf;
+      }
+      memcpy(o, p, strlen(p) + 1);
+      return out;
+  }
+tests: |
+  char *r;
+  r = replace_all("a-b-c", "-", "+");
+  CHECK_STR(r, "a+b+c");
+  free(r);
+  r = replace_all("aaa", "aa", "b");
+  CHECK_STR(r, "ba");
+  free(r);
+  r = replace_all("hello", "l", "");
+  CHECK_STR(r, "heo");
+  free(r);
+  r = replace_all("x", "x", "long text");
+  CHECK_STR(r, "long text");
+  free(r);
+  r = replace_all("none", "zz", "y");
+  CHECK_STR(r, "none");
+  free(r);
+  r = replace_all("", "a", "b");
+  CHECK_STR(r, "");
+  free(r);
+  CHECK(replace_all("abc", "", "x") == NULL);
+  CHECK(replace_all(NULL, "a", "b") == NULL);
+fuzz: |
+  char *s = segv_rand_str(30, "ab");
+  char *from = segv_rand_str_n((size_t)segv_rand_int(1, 2), "ab");
+  char *to = segv_rand_str(3, "xy");
+  char *r = replace_all(s, from, to);
+  if (r) {
+      size_t hits = 0, lf = strlen(from);
+      for (const char *p = strstr(s, from); p; p = strstr(p + lf, from)) hits++;
+      CHECK(strlen(r) == strlen(s) - hits * lf + hits * strlen(to));
+      free(r);
+  }
+  free(s);
+  free(from);
+  free(to);
+perf: |
+  char *s = segv_rand_str_n((size_t)N, "abc");
+  char *r = replace_all(s, "ab", "xyz");
+  if (r) segv_sink += r[0];
+  free(r);
+  free(s);
+perf_n0: 10000
+variants:
+  - kind: vuln
+    note: sizes the output as if the replacement were never longer than the match
+    code: |
+      #include <stdlib.h>
+      #include <string.h>
+
+      char *replace_all(const char *s, const char *from, const char *to) {
+          if (!s || !from || !to || !*from) return NULL;
+          size_t lf = strlen(from), lt = strlen(to);
+          char *out = malloc(strlen(s) + 1);
+          if (!out) return NULL;
+          char *o = out;
+          const char *p = s, *q;
+          while ((q = strstr(p, from))) {
+              memcpy(o, p, (size_t)(q - p));
+              o += q - p;
+              memcpy(o, to, lt);
+              o += lt;
+              p = q + lf;
+          }
+          memcpy(o, p, strlen(p) + 1);
+          return out;
+      }
+  - kind: overuse
+    note: appends each piece with strcat/strncat, re-scanning the output (O(n^2))
+    code: |
+      #include <stdlib.h>
+      #include <string.h>
+
+      char *replace_all(const char *s, const char *from, const char *to) {
+          if (!s || !from || !to || !*from) return NULL;
+          size_t lf = strlen(from), lt = strlen(to), hits = 0;
+          for (const char *p = strstr(s, from); p; p = strstr(p + lf, from)) hits++;
+          char *out = malloc(strlen(s) - hits * lf + hits * lt + 1);
+          if (!out) return NULL;
+          out[0] = '\0';
+          const char *p = s, *q;
+          while ((q = strstr(p, from))) {
+              strncat(out, p, (size_t)(q - p));
+              strcat(out, to);
+              p = q + lf;
+          }
+          strcat(out, p);
+          return out;
+      }

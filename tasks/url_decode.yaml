@@ -1,0 +1,129 @@
+id: url_decode
+title: Decode a URL-encoded string
+tags: [strings, untrusted-input, parsing]
+requirement: |
+  Write a C function that decodes a URL-encoded string: "+" becomes a
+  space and "%XX" (two hex digits, either case) becomes that byte; other
+  characters are copied. The input is untrusted. Return NULL if `s` is
+  NULL, if a "%" is not followed by two hex digits (including at the end
+  of the string), if an escape decodes to the byte 0, or if allocation
+  fails. Otherwise return a newly allocated string; the caller frees it.
+signature: char *url_decode(const char *s);
+complexity: 1
+reference: |
+  #include <stdlib.h>
+  #include <string.h>
+
+  static int hexval(int c) {
+      if (c >= '0' && c <= '9') return c - '0';
+      if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+      if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+      return -1;
+  }
+
+  char *url_decode(const char *s) {
+      if (!s) return NULL;
+      char *out = malloc(strlen(s) + 1);
+      if (!out) return NULL;
+      size_t o = 0;
+      for (size_t i = 0; s[i]; i++) {
+          if (s[i] == '+') {
+              out[o++] = ' ';
+          } else if (s[i] == '%') {
+              int hi = hexval((unsigned char)s[i + 1]);
+              int lo = hi < 0 ? -1 : hexval((unsigned char)s[i + 2]);
+              if (hi < 0 || lo < 0 || hi * 16 + lo == 0) {
+                  free(out);
+                  return NULL;
+              }
+              out[o++] = (char)(hi * 16 + lo);
+              i += 2;
+          } else {
+              out[o++] = s[i];
+          }
+      }
+      out[o] = '\0';
+      return out;
+  }
+tests: |
+  char *r;
+  r = url_decode("a%20b");
+  CHECK_STR(r, "a b");
+  free(r);
+  r = url_decode("x+y");
+  CHECK_STR(r, "x y");
+  free(r);
+  r = url_decode("%41%42c");
+  CHECK_STR(r, "ABc");
+  free(r);
+  r = url_decode("100%25");
+  CHECK_STR(r, "100%");
+  free(r);
+  r = url_decode("%7e%7E");
+  CHECK_STR(r, "~~");
+  free(r);
+  r = url_decode("%6a%4A%3f");
+  CHECK_STR(r, "jJ?");
+  free(r);
+  r = url_decode("");
+  CHECK_STR(r, "");
+  free(r);
+  CHECK(url_decode("%") == NULL);
+  CHECK(url_decode("ab%4") == NULL);
+  CHECK(url_decode("%G1") == NULL);
+  CHECK(url_decode("%00") == NULL);
+  CHECK(url_decode(NULL) == NULL);
+fuzz: |
+  char *s = segv_rand_str(20, "%4a1+Fz");
+  char *r = url_decode(s);
+  if (r) {
+      CHECK(strlen(r) <= strlen(s));
+      free(r);
+  }
+  free(s);
+perf: |
+  char *s = malloc((size_t)N * 6 + 1);
+  for (long i = 0; i < N; i++) memcpy(s + i * 6, "ab%41+", 6);
+  s[N * 6] = 0;
+  char *r = url_decode(s);
+  if (r) segv_sink += r[0];
+  free(r);
+  free(s);
+perf_n0: 10000
+variants:
+  - kind: vuln
+    note: reads both hex digits without checking for the end of the string
+    code: |
+      #include <stdlib.h>
+      #include <string.h>
+
+      static int hexval(int c) {
+          if (c >= '0' && c <= '9') return c - '0';
+          if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+          if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+          return -1;
+      }
+
+      char *url_decode(const char *s) {
+          if (!s) return NULL;
+          char *out = malloc(strlen(s) + 1);
+          if (!out) return NULL;
+          size_t o = 0;
+          for (size_t i = 0; s[i]; i++) {
+              if (s[i] == '+') {
+                  out[o++] = ' ';
+              } else if (s[i] == '%') {
+                  int hi = hexval(s[i + 1]), lo = hexval(s[i + 2]);
+                  if (hi < 0 || lo < 0 || hi * 16 + lo == 0) {
+                      free(out);
+                      return NULL;
+                  }
+                  out[o++] = (char)(hi * 16 + lo);
+                  i += 2;
+              } else {
+                  out[o++] = s[i];
+              }
+          }
+          out[o] = '\0';
+          return out;
+      }

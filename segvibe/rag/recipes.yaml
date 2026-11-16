@@ -1,0 +1,237 @@
+# Fix recipes: short, practical guidance per defect kind (written for SEGVibe).
+# kinds: finding kinds (segvibe/findings.py) the recipe answers.
+- id: R-string-size
+  title: Size string buffers for the worst case, including the terminator
+  kinds: [heap-buffer-overflow, global-buffer-overflow, stack-buffer-overflow, dynamic-stack-buffer-overflow]
+  cwes: [CWE-122, CWE-121, CWE-787, CWE-131, CWE-193]
+  text: |
+    Writes past the end of a string buffer usually come from sizing it for the typical case. Compute the
+    exact output length first (a counting pass, or a provable upper bound such as 2*n for run-length
+    encoding or 4*ceil(n/3) for base64), allocate length + 1 for the '\0', and write with an index you
+    compare against that length. When the output can be longer than the input (replacement, escaping,
+    expansion), size it from the number of expansions, not from strlen(input).
+    Pattern: size_t need = count_output(s); char *out = malloc(need + 1); ... out[need] = '\0';
+- id: R-read-bounds
+  title: Check the end of the input before reading ahead
+  kinds: [heap-buffer-overflow, global-buffer-overflow, index-out-of-bounds]
+  cwes: [CWE-125, CWE-126, CWE-787]
+  text: |
+    Parsers that look ahead (s[i + 1], s[i + 2] after a '%' or a backslash) read past the terminator
+    when the escape is truncated at the end of the string. Test each look-ahead character before using
+    the next one, e.g. hi = hex(s[i+1]); if (hi < 0) fail; lo = hex(s[i+2]); a '\0' is never a valid
+    digit, so short-circuit evaluation stops at the end. Never advance i past the terminator.
+- id: R-off-by-one
+  title: Off-by-one loop bounds
+  kinds: [index-out-of-bounds, heap-buffer-overflow, stack-buffer-overflow, wrong-result]
+  cwes: [CWE-193, CWE-787, CWE-125]
+  text: |
+    A loop over n elements runs i = 0 .. n-1: use i < n, never i <= n. For windows of size k the last
+    start index is n - k, so the inner loop is j < i + k. Check the bound before the access in
+    conditions: (i < n && a[i] != x), not (a[i] != x && i < n). Allocation sizes and loop bounds must
+    agree: if you allocate n elements, you may touch indices 0..n-1 only.
+- id: R-use-after-free
+  title: Do not touch memory after freeing it
+  kinds: [heap-use-after-free, use-after-free]
+  cwes: [CWE-416, CWE-825]
+  text: |
+    When freeing a linked structure, read what you need from a node before freeing it:
+    while (p) { Node *next = p->next; free(p); p = next; }. Never use p->next in the increment of a
+    for loop that frees p. After freeing a pointer that stays in scope, set it to NULL. Do not return
+    or keep pointers into a buffer that realloc may have moved; re-derive them from the new base.
+- id: R-double-free
+  title: Free each block exactly once
+  kinds: [double-free, bad-free]
+  cwes: [CWE-415, CWE-590, CWE-761, CWE-763]
+  text: |
+    Give every allocation one owner. On error paths free in reverse order of allocation, through one
+    cleanup block, and set freed pointers to NULL so a second cleanup is harmless. Only pass pointers
+    returned by malloc/calloc/realloc/strdup to free: never a pointer into the middle of a block, a
+    string literal or a stack array. Do not free memory the caller still owns.
+- id: R-null-input
+  title: Handle NULL and empty input before dereferencing
+  kinds: [SEGV, null-pointer-use, null-dereference]
+  cwes: [CWE-476, CWE-690]
+  text: |
+    Check every pointer argument the requirement allows to be NULL at the top of the function and
+    return the documented error value. Check results of functions that can return NULL (malloc, fopen,
+    strchr, strstr) before using them. Empty input ("" or n == 0) is valid unless the requirement says
+    otherwise: make sure loops and n - 1 style arithmetic (size_t underflow) handle it.
+- id: R-check-alloc
+  title: Check every allocation and fail cleanly
+  kinds: [unchecked-alloc, crash-on-alloc-failure]
+  cwes: [CWE-690, CWE-252, CWE-476]
+  text: |
+    malloc, calloc, realloc and strdup return NULL on failure. Test the result immediately:
+    char *p = malloc(n); if (!p) return NULL; When the function already holds other allocations, free
+    them first (see the cleanup pattern) and return the error value from the requirement. Callers of
+    your own helpers must check their error returns too.
+- id: R-cleanup-goto
+  title: Single cleanup path so every exit frees everything
+  kinds: [leak-on-alloc-failure, memory-leak, file-handle-leak]
+  cwes: [CWE-401, CWE-772, CWE-775, CWE-404]
+  text: |
+    Functions with several resources leak on early returns. Initialise every resource to NULL, jump to
+    one cleanup label on any failure, and free/close everything there; free(NULL) is a no-op.
+        char *a = NULL, *b = NULL; FILE *f = NULL;
+        if (!(a = malloc(x))) goto fail;  if (!(b = malloc(y))) goto fail;  ...
+        return result;
+      fail: free(a); free(b); if (f) fclose(f); return NULL;
+    For arrays of allocations, free the first k elements that were filled, then the array.
+- id: R-ownership
+  title: "Free temporaries; only the returned block survives"
+  kinds: [memory-leak]
+  cwes: [CWE-401, CWE-772]
+  text: |
+    Every malloc/strdup/realloc result must either be returned to the caller (who frees it, as the
+    requirement says) or freed before return, on every path. Copies made for strtok, scratch tables,
+    index arrays and intermediate strings are temporaries: free them before returning the result.
+    Overwriting the only pointer to a block (p = malloc(...) twice) leaks the first one.
+- id: R-close-files
+  title: Close every file you open, on every path
+  kinds: [file-handle-leak]
+  cwes: [CWE-775, CWE-772, CWE-404]
+  text: |
+    Each successful fopen needs exactly one fclose, also when a later allocation or read fails. Close
+    the file as soon as you have read what you need (before splitting or post-processing), so later
+    error paths do not need to remember it. Check fopen's result for NULL before using it.
+- id: R-realloc
+  title: Keep the old block when realloc fails
+  kinds: [realloc-leak, leak-on-alloc-failure]
+  cwes: [CWE-401]
+  text: |
+    p = realloc(p, n) loses the only pointer to the old block when realloc returns NULL. Use a
+    temporary: void *tmp = realloc(p, n); if (!tmp) { free(p); return NULL; } p = tmp; Grow capacity
+    geometrically (cap *= 2) so appends stay amortised O(1).
+- id: R-int-overflow
+  title: "Avoid signed overflow: widen or check before the operation"
+  kinds: [signed-integer-overflow]
+  cwes: [CWE-190, CWE-191, CWE-128]
+  text: |
+    Signed overflow is undefined behaviour; checking the result afterwards (next < v) does not work.
+    Either compute in a wider type (long long for int sums: (long long)a + b) or check before the
+    operation: if (v > (INT_MAX - d) / 10) overflow. When parsing, accumulate in a wider or unsigned
+    type and compare against the limit for the sign (INT_MAX + 1 for negative values).
+- id: R-size-overflow
+  title: Size arithmetic must not wrap
+  kinds: [heap-buffer-overflow, allocation-size-too-big, signed-integer-overflow]
+  cwes: [CWE-190, CWE-680, CWE-131]
+  text: |
+    n * count and a + b on size_t wrap around silently, producing a tiny allocation and a huge write.
+    Check before multiplying: if (count && n > LIMIT / count) fail; use division, not the product, in
+    the comparison. Reject lengths from untrusted input before allocating. calloc(count, size) checks
+    the multiplication for you.
+- id: R-untrusted-size
+  title: Validate untrusted counts and sizes before allocating
+  kinds: [allocation-size-too-big, memory-hog, out-of-memory]
+  cwes: [CWE-789, CWE-770, CWE-400, CWE-1284]
+  text: |
+    Counts, lengths and sizes that come from the input (a run length, a header field, a repeat count)
+    must be checked against the limit in the requirement before any allocation or loop uses them.
+    Accumulate totals with an overflow-safe check (if (cnt > max_len - total) fail) and fail early; do
+    not decode or allocate first and compare afterwards.
+- id: R-termination
+  title: Make every loop provably terminate
+  kinds: [timeout]
+  cwes: [CWE-835, CWE-834, CWE-400]
+  text: |
+    Hangs come from loops whose progress depends on input: a zero-length element (empty search string,
+    empty separator, empty repeat unit), an index that does not advance on some branch, or an unsigned
+    counter decremented below zero (size_t i = n - 1; i >= 0; i--). Special-case zero-length input,
+    make sure every iteration advances, and count down with while (i > 0) { i--; ... }.
+- id: R-quadratic-strings
+  title: Build strings in linear time
+  kinds: [slow-growth, slow, timeout, strlen-in-loop]
+  cwes: [CWE-407, CWE-1050]
+  text: |
+    strcat and strlen rescan the whole destination, so appending in a loop is O(n^2). Keep a write
+    pointer or an output index: memcpy(out + o, piece, len); o += len; and terminate once at the end.
+    Compute strlen(s) once before the loop, not in the loop condition.
+- id: R-quadratic-search
+  title: Replace nested scans with sorting or hashing
+  kinds: [slow-growth, slow, timeout]
+  cwes: [CWE-407, CWE-1050]
+  text: |
+    Checking each element against all previous ones (duplicates, pair sums, word counts) is O(n^2).
+    Sort a copy of (value, index) pairs with qsort and scan neighbours, or use an open-addressing hash
+    table sized to about twice the element count. Sliding-window problems need a monotonic deque of
+    indices for O(n). Keep the original order by sorting indices, not values.
+- id: R-recursion
+  title: Use iteration or an explicit heap stack for input-sized depth
+  kinds: [stack-overflow, signal]
+  cwes: [CWE-674, CWE-121]
+  text: |
+    Recursion depth proportional to the input (list length, nesting depth) overflows the stack on large
+    inputs. Use a loop for lists, and an explicit stack allocated on the heap, sized from the input (for
+    example the number of opening brackets), for nested structures. Never use a fixed-size array as a
+    stack for untrusted input.
+- id: R-fixed-buffers
+  title: No fixed-size buffers for input-sized data
+  kinds: [stack-buffer-overflow, wrong-result]
+  cwes: [CWE-121, CWE-120, CWE-787]
+  text: |
+    Arrays like char line[256] or char *words[64] break on longer input: either they overflow (stack
+    buffer overflow) or they silently split and truncate data (wrong results). Allocate from the actual
+    size, or grow a heap buffer geometrically while reading.
+- id: R-div-zero
+  title: Guard divisions and modulo
+  kinds: [division-by-zero]
+  cwes: [CWE-369]
+  text: |
+    Check the divisor before every / and %: if (d == 0) return error. INT_MIN / -1 also overflows. Guard
+    averages and ratios on empty input (n == 0).
+- id: R-uninit
+  title: Initialise before use
+  kinds: [uninitialized]
+  cwes: [CWE-457, CWE-908]
+  text: |
+    Initialise every local and every allocated block before reading it: use calloc or memset for tables,
+    give accumulators a starting value, and make sure every branch assigns output variables. Only read
+    the part of a buffer you actually filled (len, not cap).
+- id: R-format
+  title: Never use input as a format string
+  kinds: [format-string]
+  cwes: [CWE-134]
+  text: |
+    printf(s) interprets % sequences in s and can read or write memory. Always pass a literal format:
+    printf("%s", s), fputs(s, stdout).
+- id: R-unbounded
+  title: Bounded copies with known lengths
+  kinds: [unbounded-copy, dangerous-function]
+  cwes: [CWE-120, CWE-242, CWE-676]
+  text: |
+    gets, strcpy, strcat, sprintf and scanf("%s") do not know the destination size. Track lengths and
+    copy with memcpy(dst + o, src, len), format with snprintf(dst, size, ...), read lines with fgets or
+    getline, and give scanf a width ("%63s"). strncpy does not always terminate: prefer memcpy plus an
+    explicit '\0'.
+- id: R-stack-return
+  title: Do not return pointers to local arrays
+  kinds: [stack-use-after-return]
+  cwes: [CWE-562]
+  text: |
+    A local array dies when the function returns. Return heap memory the caller frees (as the
+    requirement says), or write into a buffer the caller provides.
+- id: R-edge-cases
+  title: Edge-case checklist for wrong results
+  kinds: [wrong-result]
+  cwes: [CWE-684, CWE-697]
+  text: |
+    When tests fail, check: empty input, a single element, all elements equal, separators at the start
+    and end or repeated, the largest and smallest int values, lengths of 10 or more where digits are
+    printed, case-insensitive comparisons, ties broken by first occurrence, and NULL arguments returning
+    the documented error value. Re-read the requirement for each output detail.
+- id: R-signature
+  title: Match the required interface exactly
+  kinds: [compile-error, warning]
+  cwes: []
+  text: |
+    The function name, return type, parameter types and their order must match the interface exactly,
+    including const qualifiers and typedefs given in the requirement. Include the headers for every
+    function you call (string.h, stdlib.h, ctype.h, stdio.h, limits.h). Do not define main().
+- id: R-shifts
+  title: Shifts and alignment
+  kinds: [invalid-shift, misaligned-access]
+  cwes: [CWE-1335, CWE-188]
+  text: |
+    Shift unsigned values only, by less than the type width: (uint32_t)b << 24, not b << 24 on a signed
+    int. Read multi-byte values from byte buffers with memcpy or byte-wise assembly, not by casting the
+    pointer to a wider type.

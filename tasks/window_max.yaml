@@ -1,0 +1,125 @@
+id: window_max
+title: Sliding window maximum
+tags: [arrays, performance]
+requirement: |
+  Write a C function that returns the maximum of every window of `k`
+  consecutive elements of `a` (length `n`): a newly allocated array of
+  n - k + 1 ints, with its length stored in `*out_n`. Return NULL with
+  `*out_n` = 0 (when `out_n` is not NULL) if a pointer argument is NULL,
+  if k is 0 or greater than n, or if allocation fails. It must run in O(n)
+  time whatever k is. The caller frees the result.
+signature: int *window_max(const int *a, size_t n, size_t k, size_t *out_n);
+complexity: 1
+reference: |
+  #include <stdlib.h>
+
+  int *window_max(const int *a, size_t n, size_t k, size_t *out_n) {
+      if (out_n) *out_n = 0;
+      if (!a || !out_n || k == 0 || k > n) return NULL;
+      size_t m = n - k + 1;
+      int *out = malloc(m * sizeof *out);
+      size_t *dq = malloc(n * sizeof *dq);
+      if (!out || !dq) {
+          free(out);
+          free(dq);
+          return NULL;
+      }
+      size_t head = 0, tail = 0;
+      for (size_t i = 0; i < n; i++) {
+          while (tail > head && a[dq[tail - 1]] <= a[i]) tail--;
+          dq[tail++] = i;
+          if (dq[head] + k <= i) head++;
+          if (i + 1 >= k) out[i + 1 - k] = a[dq[head]];
+      }
+      free(dq);
+      *out_n = m;
+      return out;
+  }
+helpers: |
+  static void check_window(const int *a, size_t n, size_t k) {
+      size_t m = 99;
+      int *r = window_max(a, n, k, &m);
+      if (k == 0 || k > n) {
+          CHECK(r == NULL);
+          CHECK_INT(m, 0);
+          free(r);
+          return;
+      }
+      if (!r) return;
+      CHECK_INT(m, n - k + 1);
+      for (size_t i = 0; i + k <= n && m == n - k + 1; i++) {
+          int best = a[i];
+          for (size_t j = i; j < i + k; j++) best = a[j] > best ? a[j] : best;
+          CHECK_INT(r[i], best);
+      }
+      free(r);
+  }
+tests: |
+  int a[] = {1, 3, -1, -3, 5, 3, 6, 7};
+  size_t m = 0;
+  int *r = window_max(a, 8, 3, &m);
+  int want[] = {3, 3, 5, 5, 6, 7};
+  CHECK_INT(m, 6);
+  for (size_t i = 0; r && m == 6 && i < 6; i++) CHECK_INT(r[i], want[i]);
+  free(r);
+  check_window(a, 8, 1);
+  check_window(a, 8, 8);
+  check_window(a, 8, 0);
+  check_window(a, 8, 9);
+  int b[] = {INT_MIN, INT_MIN, INT_MAX};
+  check_window(b, 3, 2);
+  CHECK(window_max(NULL, 3, 1, &m) == NULL);
+fuzz: |
+  size_t n = (size_t)segv_rand_int(0, 20);
+  int *a = segv_rand_ints(n, -50, 50);
+  check_window(a, n, (size_t)segv_rand_int(0, (long)n + 1));
+  free(a);
+perf: |
+  int *a = segv_rand_ints((size_t)N, -1000000, 1000000);
+  size_t m = 0;
+  int *r = window_max(a, (size_t)N, (size_t)N / 2, &m);
+  if (r) segv_sink += r[0];
+  free(r);
+  free(a);
+perf_n0: 1000
+variants:
+  - kind: overuse
+    note: rescans each window (O(n * k))
+    code: |
+      #include <stdlib.h>
+
+      int *window_max(const int *a, size_t n, size_t k, size_t *out_n) {
+          if (out_n) *out_n = 0;
+          if (!a || !out_n || k == 0 || k > n) return NULL;
+          size_t m = n - k + 1;
+          int *out = malloc(m * sizeof *out);
+          if (!out) return NULL;
+          for (size_t i = 0; i < m; i++) {
+              int best = a[i];
+              for (size_t j = i + 1; j < i + k; j++)
+                  if (a[j] > best) best = a[j];
+              out[i] = best;
+          }
+          *out_n = m;
+          return out;
+      }
+  - kind: vuln
+    note: off-by-one window bound reads one element past the end
+    code: |
+      #include <stdlib.h>
+
+      int *window_max(const int *a, size_t n, size_t k, size_t *out_n) {
+          if (out_n) *out_n = 0;
+          if (!a || !out_n || k == 0 || k > n) return NULL;
+          size_t m = n - k + 1;
+          int *out = malloc(m * sizeof *out);
+          if (!out) return NULL;
+          for (size_t i = 0; i < m; i++) {
+              int best = a[i];
+              for (size_t j = i + 1; j <= i + k; j++)
+                  if (a[j] > best) best = a[j];
+              out[i] = best;
+          }
+          *out_n = m;
+          return out;
+      }

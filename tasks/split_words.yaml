@@ -1,0 +1,139 @@
+id: split_words
+title: Split a string into words
+tags: [strings, arrays-of-pointers, allocation]
+requirement: |
+  Write a C function that splits `s` into the non-empty pieces between
+  occurrences of the separator `sep` (several separators in a row produce
+  no empty pieces). Store the number of pieces in `*count` and return a
+  newly allocated array of `*count + 1` pointers: one newly allocated
+  string per piece, followed by NULL. With no pieces, return an array
+  holding only NULL. Return NULL (with `*count` set to 0 when `count` is not
+  NULL) if `s` or `count` is NULL or if any allocation fails; on failure,
+  free everything allocated so far. The caller frees each string and the array.
+signature: char **split_words(const char *s, char sep, size_t *count);
+complexity: 1
+reference: |
+  #include <stdlib.h>
+  #include <string.h>
+
+  static void free_partial(char **w, size_t k) {
+      for (size_t i = 0; i < k; i++) free(w[i]);
+      free(w);
+  }
+
+  char **split_words(const char *s, char sep, size_t *count) {
+      if (count) *count = 0;
+      if (!s || !count) return NULL;
+      size_t n = 0;
+      for (size_t i = 0; s[i]; i++)
+          if (s[i] != sep && (i == 0 || s[i - 1] == sep)) n++;
+      char **w = malloc((n + 1) * sizeof *w);
+      if (!w) return NULL;
+      size_t k = 0;
+      const char *p = s;
+      while (*p) {
+          while (*p == sep) p++;
+          if (!*p) break;
+          const char *q = p;
+          while (*q && *q != sep) q++;
+          w[k] = malloc((size_t)(q - p) + 1);
+          if (!w[k]) {
+              free_partial(w, k);
+              return NULL;
+          }
+          memcpy(w[k], p, (size_t)(q - p));
+          w[k][q - p] = '\0';
+          k++;
+          p = q;
+      }
+      w[k] = NULL;
+      *count = k;
+      return w;
+  }
+tests: |
+  size_t n = 99;
+  char **w = split_words("a,b,,c", ',', &n);
+  CHECK_INT(n, 3);
+  if (w && n == 3) {
+      CHECK_STR(w[0], "a");
+      CHECK_STR(w[1], "b");
+      CHECK_STR(w[2], "c");
+      CHECK(w[3] == NULL);
+  }
+  for (size_t i = 0; w && i < n; i++) free(w[i]);
+  free(w);
+  w = split_words(",,,", ',', &n);
+  CHECK_INT(n, 0);
+  CHECK(w != NULL && w[0] == NULL);
+  free(w);
+  w = split_words("", ',', &n);
+  CHECK(w != NULL && w[0] == NULL);
+  free(w);
+  w = split_words(" solo ", ' ', &n);
+  CHECK_INT(n, 1);
+  if (w && n == 1) CHECK_STR(w[0], "solo");
+  for (size_t i = 0; w && i < n; i++) free(w[i]);
+  free(w);
+  CHECK(split_words(NULL, ',', &n) == NULL);
+  CHECK(split_words("a", ',', NULL) == NULL);
+fuzz: |
+  char *s = segv_rand_str(30, "ab,");
+  size_t n = 0;
+  char **w = split_words(s, ',', &n);
+  if (w) {
+      size_t total = 0, letters = 0;
+      for (size_t i = 0; i < n; i++) {
+          CHECK(w[i][0] != '\0');
+          CHECK(strchr(w[i], ',') == NULL);
+          total += strlen(w[i]);
+          free(w[i]);
+      }
+      CHECK(w[n] == NULL);
+      for (char *p = s; *p; p++) letters += *p != ',';
+      CHECK(total == letters);
+      free(w);
+  }
+  free(s);
+perf: |
+  char *s = segv_rand_str_n((size_t)N, "abc,,");
+  size_t n = 0;
+  char **w = split_words(s, ',', &n);
+  for (size_t i = 0; w && i < n; i++) free(w[i]);
+  free(w);
+  free(s);
+  segv_sink += (long)n;
+perf_n0: 10000
+variants:
+  - kind: leak
+    note: on an allocation failure, returns without freeing the pieces already copied
+    code: |
+      #include <stdlib.h>
+      #include <string.h>
+
+      char **split_words(const char *s, char sep, size_t *count) {
+          if (count) *count = 0;
+          if (!s || !count) return NULL;
+          size_t n = 0;
+          for (size_t i = 0; s[i]; i++)
+              if (s[i] != sep && (i == 0 || s[i - 1] == sep)) n++;
+          char **w = malloc((n + 1) * sizeof *w);
+          if (!w) return NULL;
+          size_t k = 0;
+          const char *p = s;
+          while (*p) {
+              while (*p == sep) p++;
+              if (!*p) break;
+              const char *q = p;
+              while (*q && *q != sep) q++;
+              w[k] = strndup(p, (size_t)(q - p));
+              if (!w[k]) {
+                  free(w);
+                  return NULL;
+              }
+              k++;
+              p = q;
+          }
+          w[k] = NULL;
+          *count = k;
+          return w;
+      }

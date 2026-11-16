@@ -1,0 +1,104 @@
+id: repeat_string
+title: Repeat a string with a size limit
+tags: [strings, integer-overflow, resource-limits]
+requirement: |
+  Write a C function that returns a newly allocated string made of `s`
+  repeated `times` times. Return NULL if `s` is NULL, if the result would
+  be longer than 1,000,000 characters, or if allocation fails. `times` can
+  be any size_t value, so the length check itself must not overflow, and
+  an empty `s` must return "" quickly whatever `times` is. The caller frees
+  the result.
+signature: char *repeat_string(const char *s, size_t times);
+complexity: 1
+reference: |
+  #include <stdlib.h>
+  #include <string.h>
+
+  char *repeat_string(const char *s, size_t times) {
+      if (!s) return NULL;
+      size_t n = strlen(s);
+      if (n == 0) times = 0;
+      if (n && times > 1000000 / n) return NULL;
+      char *out = malloc(n * times + 1);
+      if (!out) return NULL;
+      for (size_t i = 0; i < times; i++) memcpy(out + i * n, s, n);
+      out[n * times] = '\0';
+      return out;
+  }
+tests: |
+  char *r;
+  r = repeat_string("ab", 3);
+  CHECK_STR(r, "ababab");
+  free(r);
+  r = repeat_string("x", 0);
+  CHECK_STR(r, "");
+  free(r);
+  r = repeat_string("", 5);
+  CHECK_STR(r, "");
+  free(r);
+  r = repeat_string("", SIZE_MAX);
+  CHECK_STR(r, "");
+  free(r);
+  r = repeat_string("abc", 333333);
+  CHECK(r != NULL && strlen(r) == 999999);
+  free(r);
+  CHECK(repeat_string("abc", 333334) == NULL);
+  CHECK(repeat_string("ab", SIZE_MAX / 2 + 1) == NULL);
+  CHECK(repeat_string("abc", SIZE_MAX / 3 + 1) == NULL);
+  CHECK(repeat_string(NULL, 2) == NULL);
+fuzz: |
+  char *s = segv_rand_str(4, "ab");
+  size_t opts[] = {0, 1, 2, 7, 250000, 999999, 1000001, SIZE_MAX / 2 + 1, SIZE_MAX / 3 + 1, SIZE_MAX};
+  size_t times = opts[segv_rand_int(0, 9)];
+  char *r = repeat_string(s, times);
+  size_t n = strlen(s);
+  int fits = n == 0 || times <= 1000000 / n;
+  CHECK((r != NULL) == fits);
+  if (r) {
+      CHECK(strlen(r) == (n ? n * times : 0));
+      free(r);
+  }
+  free(s);
+perf: |
+  char *r = repeat_string("abc", (size_t)(N < 333333 ? N : 333333));
+  if (r) segv_sink += r[0];
+  free(r);
+perf_n0: 1000
+heap_limit: 3000000
+variants:
+  - kind: vuln
+    note: checks n * times > limit, which wraps around for huge `times`
+    code: |
+      #include <stdlib.h>
+      #include <string.h>
+
+      char *repeat_string(const char *s, size_t times) {
+          if (!s) return NULL;
+          size_t n = strlen(s);
+          if (n * times > 1000000) return NULL;
+          char *out = malloc(n * times + 1);
+          if (!out) return NULL;
+          for (size_t i = 0; i < times; i++) memcpy(out + i * n, s, n);
+          out[n * times] = '\0';
+          return out;
+      }
+  - kind: overuse
+    note: loops `times` times even when `s` is empty
+    code: |
+      #include <stdlib.h>
+      #include <string.h>
+
+      char *repeat_string(const char *s, size_t times) {
+          if (!s) return NULL;
+          size_t n = strlen(s);
+          if (n && times > 1000000 / n) return NULL;
+          char *out = malloc(n * times + 1);
+          if (!out) return NULL;
+          size_t o = 0;
+          for (size_t i = 0; i < times; i++) {
+              memcpy(out + o, s, n);
+              o += n;
+          }
+          out[o] = '\0';
+          return out;
+      }

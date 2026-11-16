@@ -1,0 +1,93 @@
+id: reverse_words
+title: Reverse the order of words
+tags: [strings, allocation]
+requirement: |
+  Write a C function that returns a new string with the words of `s` in
+  reverse order. Words are separated by one or more spaces; the result
+  separates words with exactly one space and has no leading or trailing
+  spaces. Return NULL if `s` is NULL or if memory allocation fails. The
+  caller frees the result.
+signature: char *reverse_words(const char *s);
+complexity: 1
+reference: |
+  #include <stdlib.h>
+  #include <string.h>
+
+  char *reverse_words(const char *s) {
+      if (!s) return NULL;
+      size_t n = strlen(s);
+      char *out = malloc(n + 1);
+      if (!out) return NULL;
+      size_t o = 0;
+      size_t i = n;
+      while (i > 0) {
+          while (i > 0 && s[i - 1] == ' ') i--;
+          size_t end = i;
+          while (i > 0 && s[i - 1] != ' ') i--;
+          if (end > i) {
+              if (o > 0) out[o++] = ' ';
+              memcpy(out + o, s + i, end - i);
+              o += end - i;
+          }
+      }
+      out[o] = '\0';
+      return out;
+  }
+tests: |
+  struct { const char *in, *want; } cases[] = {
+      {"hello world", "world hello"},
+      {"  a  b   c ", "c b a"},
+      {"one", "one"},
+      {"", ""},
+      {"   ", ""},
+      {"the quick brown fox", "fox brown quick the"},
+  };
+  for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+      char *r = reverse_words(cases[i].in);
+      CHECK_STR(r, cases[i].want);
+      free(r);
+  }
+  CHECK(reverse_words(NULL) == NULL);
+fuzz: |
+  char *s = segv_rand_str(40, " ab");
+  char *r = reverse_words(s);
+  if (r) {
+      size_t letters_in = 0, letters_out = 0;
+      for (char *p = s; *p; p++) letters_in += *p != ' ';
+      for (char *p = r; *p; p++) letters_out += *p != ' ';
+      CHECK(letters_in == letters_out);
+      CHECK(r[0] != ' ');
+      free(r);
+  }
+  free(s);
+perf: |
+  char *s = segv_rand_str_n((size_t)N, "abcde   ");
+  char *r = reverse_words(s);
+  if (r) segv_sink += r[0];
+  free(r);
+  free(s);
+perf_n0: 10000
+variants:
+  - kind: overuse
+    note: builds the result with strcat, re-scanning it for every word (O(n^2))
+    code: |
+      #include <stdlib.h>
+      #include <string.h>
+
+      char *reverse_words(const char *s) {
+          if (!s) return NULL;
+          size_t n = strlen(s);
+          char *out = calloc(n + 1, 1);
+          if (!out) return NULL;
+          size_t i = n;
+          while (i > 0) {
+              while (i > 0 && s[i - 1] == ' ') i--;
+              size_t end = i;
+              while (i > 0 && s[i - 1] != ' ') i--;
+              if (end > i) {
+                  if (out[0]) strcat(out, " ");
+                  strncat(out, s + i, end - i);
+              }
+          }
+          return out;
+      }

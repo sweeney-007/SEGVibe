@@ -1,0 +1,194 @@
+id: linked_list
+title: Build, reverse and free a linked list
+tags: [pointers, ownership, use-after-free]
+requirement: |
+  Using exactly this node type:
+
+      typedef struct Node { int val; struct Node *next; } Node;
+
+  write three C functions. `list_from_array` builds a newly allocated list
+  holding a[0..n-1] in order and returns its head (NULL when n is 0 or `a`
+  is NULL; if an allocation fails, free the nodes made so far and return
+  NULL). `list_reverse` reverses a list in place and returns the new head.
+  `list_free` frees every node of a list (NULL is allowed). Lists can have
+  millions of nodes, so do not use recursion.
+signature: |
+  typedef struct Node { int val; struct Node *next; } Node;
+  Node *list_from_array(const int *a, size_t n);
+  Node *list_reverse(Node *head);
+  void list_free(Node *head);
+complexity: 1
+reference: |
+  #include <stdlib.h>
+
+  typedef struct Node {
+      int val;
+      struct Node *next;
+  } Node;
+
+  void list_free(Node *head) {
+      while (head) {
+          Node *next = head->next;
+          free(head);
+          head = next;
+      }
+  }
+
+  Node *list_from_array(const int *a, size_t n) {
+      if (!a) return NULL;
+      Node *head = NULL, **tail = &head;
+      for (size_t i = 0; i < n; i++) {
+          Node *node = malloc(sizeof *node);
+          if (!node) {
+              list_free(head);
+              return NULL;
+          }
+          node->val = a[i];
+          node->next = NULL;
+          *tail = node;
+          tail = &node->next;
+      }
+      return head;
+  }
+
+  Node *list_reverse(Node *head) {
+      Node *prev = NULL;
+      while (head) {
+          Node *next = head->next;
+          head->next = prev;
+          prev = head;
+          head = next;
+      }
+      return prev;
+  }
+helpers: |
+  static int list_matches(const Node *h, const int *a, size_t n, int reversed) {
+      for (size_t i = 0; i < n; i++, h = h->next)
+          if (!h || h->val != a[reversed ? n - 1 - i : i]) return 0;
+      return h == NULL;
+  }
+tests: |
+  int a[] = {1, 2, 3, 4};
+  Node *h = list_from_array(a, 4);
+  if (h) {
+      CHECK(list_matches(h, a, 4, 0));
+      h = list_reverse(h);
+      CHECK(list_matches(h, a, 4, 1));
+      list_free(h);
+  }
+  CHECK(list_from_array(a, 0) == NULL);
+  CHECK(list_from_array(NULL, 3) == NULL);
+  CHECK(list_reverse(NULL) == NULL);
+  list_free(NULL);
+  h = list_from_array(a, 1);
+  if (h) {
+      h = list_reverse(h);
+      CHECK(list_matches(h, a, 1, 0));
+      list_free(h);
+  }
+fuzz: |
+  size_t n = (size_t)segv_rand_int(0, 40);
+  int *a = segv_rand_ints(n, -9, 9);
+  Node *h = list_from_array(a, n);
+  if (h || n == 0) {
+      CHECK(list_matches(h, a, n, 0));
+      h = list_reverse(h);
+      CHECK(list_matches(h, a, n, 1));
+      h = list_reverse(h);
+      CHECK(list_matches(h, a, n, 0));
+      list_free(h);
+  }
+  free(a);
+perf: |
+  int *a = segv_rand_ints((size_t)N, 0, 100);
+  Node *h = list_from_array(a, (size_t)N);
+  h = list_reverse(h);
+  if (h) segv_sink += h->val;
+  list_free(h);
+  free(a);
+perf_n0: 1000
+variants:
+  - kind: vuln
+    note: list_free reads `next` from a node it has already freed
+    code: |
+      #include <stdlib.h>
+
+      typedef struct Node {
+          int val;
+          struct Node *next;
+      } Node;
+
+      void list_free(Node *head) {
+          for (Node *p = head; p; p = p->next) free(p);
+      }
+
+      Node *list_from_array(const int *a, size_t n) {
+          if (!a) return NULL;
+          Node *head = NULL, **tail = &head;
+          for (size_t i = 0; i < n; i++) {
+              Node *node = malloc(sizeof *node);
+              if (!node) {
+                  list_free(head);
+                  return NULL;
+              }
+              node->val = a[i];
+              node->next = NULL;
+              *tail = node;
+              tail = &node->next;
+          }
+          return head;
+      }
+
+      Node *list_reverse(Node *head) {
+          Node *prev = NULL;
+          while (head) {
+              Node *next = head->next;
+              head->next = prev;
+              prev = head;
+              head = next;
+          }
+          return prev;
+      }
+  - kind: crash
+    note: frees the list recursively, overflowing the stack on long lists
+    code: |
+      #include <stdlib.h>
+
+      typedef struct Node {
+          int val;
+          struct Node *next;
+      } Node;
+
+      void list_free(Node *head) {
+          if (!head) return;
+          list_free(head->next);
+          free(head);
+      }
+
+      Node *list_from_array(const int *a, size_t n) {
+          if (!a) return NULL;
+          Node *head = NULL, **tail = &head;
+          for (size_t i = 0; i < n; i++) {
+              Node *node = malloc(sizeof *node);
+              if (!node) {
+                  list_free(head);
+                  return NULL;
+              }
+              node->val = a[i];
+              node->next = NULL;
+              *tail = node;
+              tail = &node->next;
+          }
+          return head;
+      }
+
+      Node *list_reverse(Node *head) {
+          Node *prev = NULL;
+          while (head) {
+              Node *next = head->next;
+              head->next = prev;
+              prev = head;
+              head = next;
+          }
+          return prev;
+      }

@@ -1,0 +1,170 @@
+id: rle_decode
+title: Decode run-length encoding with a size limit
+tags: [strings, untrusted-input, resource-limits]
+requirement: |
+  Write a C function that decodes run-length encoding such as "a3b1" ->
+  "aaab": each letter is followed by a decimal count of at least 1. The
+  input is untrusted. Return NULL if `s` is NULL, if the input is malformed
+  (a letter without a count, a count without a letter, a count of 0), if
+  the decoded string would be longer than `max_len` characters (counts can
+  be huge, so check before allocating or doing arithmetic that could
+  overflow), or if allocation fails. Otherwise return a newly allocated
+  string; the caller frees it.
+signature: char *rle_decode(const char *s, size_t max_len);
+complexity: 1
+reference: |
+  #include <ctype.h>
+  #include <stdlib.h>
+  #include <string.h>
+
+  char *rle_decode(const char *s, size_t max_len) {
+      if (!s) return NULL;
+      size_t total = 0;
+      for (const char *p = s; *p;) {
+          if (isdigit((unsigned char)*p)) return NULL;
+          p++;
+          if (!isdigit((unsigned char)*p)) return NULL;
+          size_t cnt = 0;
+          while (isdigit((unsigned char)*p)) {
+              if (cnt > max_len / 10) return NULL;
+              cnt = cnt * 10 + (size_t)(*p++ - '0');
+              if (cnt > max_len) return NULL;
+          }
+          if (cnt == 0 || cnt > max_len - total) return NULL;
+          total += cnt;
+      }
+      char *out = malloc(total + 1);
+      if (!out) return NULL;
+      size_t o = 0;
+      for (const char *p = s; *p;) {
+          char c = *p++;
+          size_t cnt = 0;
+          while (isdigit((unsigned char)*p)) cnt = cnt * 10 + (size_t)(*p++ - '0');
+          memset(out + o, c, cnt);
+          o += cnt;
+      }
+      out[o] = '\0';
+      return out;
+  }
+tests: |
+  char *r;
+  r = rle_decode("a3b1", 100);
+  CHECK_STR(r, "aaab");
+  free(r);
+  r = rle_decode("z12", 100);
+  CHECK_STR(r, "zzzzzzzzzzzz");
+  free(r);
+  r = rle_decode("", 100);
+  CHECK_STR(r, "");
+  free(r);
+  r = rle_decode("a2b2", 4);
+  CHECK_STR(r, "aabb");
+  free(r);
+  CHECK(rle_decode("a", 100) == NULL);
+  CHECK(rle_decode("3a", 100) == NULL);
+  CHECK(rle_decode("a0", 100) == NULL);
+  CHECK(rle_decode("a5", 4) == NULL);
+  CHECK(rle_decode("a600b600", 1000) == NULL);
+  CHECK(rle_decode("a99999999999999999999999", 1000) == NULL);
+  CHECK(rle_decode(NULL, 10) == NULL);
+fuzz: |
+  char *s = segv_rand_str(14, "ab0123456789");
+  size_t max_len = (size_t)segv_rand_int(0, 50);
+  char *r = rle_decode(s, max_len);
+  if (r) {
+      CHECK(strlen(r) <= max_len);
+      free(r);
+  }
+  free(s);
+perf: |
+  size_t pairs = (size_t)N;
+  char *s = malloc(pairs * 2 + 1);
+  for (size_t i = 0; i < pairs; i++) {
+      s[2 * i] = (char)('a' + i % 3);
+      s[2 * i + 1] = '5';
+  }
+  s[pairs * 2] = 0;
+  char *r = rle_decode(s, (size_t)N * 10);
+  if (r) segv_sink += r[0];
+  free(r);
+  free(s);
+perf_n0: 10000
+heap_limit: 1000000
+variants:
+  - kind: vuln
+    note: trusts the counts; a huge count wraps the size computation and overflows the buffer
+    code: |
+      #include <ctype.h>
+      #include <stdlib.h>
+      #include <string.h>
+
+      char *rle_decode(const char *s, size_t max_len) {
+          if (!s) return NULL;
+          size_t total = 0;
+          for (const char *p = s; *p;) {
+              if (isdigit((unsigned char)*p)) return NULL;
+              p++;
+              if (!isdigit((unsigned char)*p)) return NULL;
+              char *end;
+              size_t cnt = strtoul(p, &end, 10);
+              p = end;
+              if (cnt == 0) return NULL;
+              total += cnt;
+          }
+          char *out = malloc(total + 1);
+          if (!out) return NULL;
+          size_t o = 0;
+          for (const char *p = s; *p;) {
+              char c = *p++;
+              char *end;
+              size_t cnt = strtoul(p, &end, 10);
+              p = end;
+              memset(out + o, c, cnt);
+              o += cnt;
+          }
+          out[o] = '\0';
+          if (o > max_len) {
+              free(out);
+              return NULL;
+          }
+          return out;
+      }
+  - kind: overuse
+    note: guards against overflow but checks max_len only after allocating and decoding
+    code: |
+      #include <ctype.h>
+      #include <stdint.h>
+      #include <stdlib.h>
+      #include <string.h>
+
+      char *rle_decode(const char *s, size_t max_len) {
+          if (!s) return NULL;
+          size_t total = 0;
+          for (const char *p = s; *p;) {
+              if (isdigit((unsigned char)*p)) return NULL;
+              p++;
+              if (!isdigit((unsigned char)*p)) return NULL;
+              char *end;
+              size_t cnt = strtoul(p, &end, 10);
+              p = end;
+              if (cnt == 0 || cnt > SIZE_MAX / 4 || total > SIZE_MAX / 4) return NULL;
+              total += cnt;
+          }
+          char *out = malloc(total + 1);
+          if (!out) return NULL;
+          size_t o = 0;
+          for (const char *p = s; *p;) {
+              char c = *p++;
+              char *end;
+              size_t cnt = strtoul(p, &end, 10);
+              p = end;
+              memset(out + o, c, cnt);
+              o += cnt;
+          }
+          out[o] = '\0';
+          if (o > max_len) {
+              free(out);
+              return NULL;
+          }
+          return out;
+      }

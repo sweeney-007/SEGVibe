@@ -1,0 +1,230 @@
+id: read_lines
+title: Read all lines of a file
+tags: [files, resources, allocation]
+requirement: |
+  Write a C function that reads the text file at `path` and returns its
+  lines without the trailing "\n": a newly allocated array of `*count + 1`
+  pointers, one newly allocated string per line followed by NULL. A last
+  line without "\n" still counts; an empty file has 0 lines. Lines can be
+  arbitrarily long. Return NULL with `*count` set to 0 (when `count` is not
+  NULL) if an argument is NULL, the file cannot be opened, or allocation
+  fails; on failure free everything allocated so far. Always close the file.
+signature: char **read_lines(const char *path, size_t *count);
+complexity: 1
+reference: |
+  #include <stdio.h>
+  #include <stdlib.h>
+  #include <string.h>
+
+  char **read_lines(const char *path, size_t *count) {
+      if (count) *count = 0;
+      if (!path || !count) return NULL;
+      FILE *f = fopen(path, "rb");
+      if (!f) return NULL;
+      size_t cap = 4096, len = 0;
+      char *buf = malloc(cap);
+      if (!buf) {
+          fclose(f);
+          return NULL;
+      }
+      size_t got;
+      while ((got = fread(buf + len, 1, cap - len, f)) > 0) {
+          len += got;
+          if (len == cap) {
+              char *nb = realloc(buf, cap * 2);
+              if (!nb) {
+                  free(buf);
+                  fclose(f);
+                  return NULL;
+              }
+              buf = nb;
+              cap *= 2;
+          }
+      }
+      fclose(f);
+      size_t n = 0;
+      for (size_t i = 0; i < len; i++)
+          if (buf[i] == '\n' || i == len - 1) n++;
+      char **lines = malloc((n + 1) * sizeof *lines);
+      if (!lines) {
+          free(buf);
+          return NULL;
+      }
+      size_t k = 0, start = 0;
+      for (size_t i = 0; i < len; i++) {
+          if (buf[i] != '\n' && i != len - 1) continue;
+          size_t end = buf[i] == '\n' ? i : len;
+          char *line = malloc(end - start + 1);
+          if (!line) {
+              for (size_t t = 0; t < k; t++) free(lines[t]);
+              free(lines);
+              free(buf);
+              return NULL;
+          }
+          memcpy(line, buf + start, end - start);
+          line[end - start] = '\0';
+          lines[k++] = line;
+          start = i + 1;
+      }
+      lines[k] = NULL;
+      free(buf);
+      *count = k;
+      return lines;
+  }
+helpers: |
+  static void write_file(const char *path, const char *text) {
+      FILE *f = fopen(path, "wb");
+      if (f) {
+          fputs(text, f);
+          fclose(f);
+      }
+  }
+
+  static void free_lines(char **l, size_t n) {
+      for (size_t i = 0; l && i < n; i++) free(l[i]);
+      free(l);
+  }
+tests: |
+  size_t n = 9;
+  write_file("t1.txt", "alpha\nbeta\n\ngamma");
+  char **l = read_lines("t1.txt", &n);
+  CHECK_INT(n, 4);
+  if (l && n == 4) {
+      CHECK_STR(l[0], "alpha");
+      CHECK_STR(l[1], "beta");
+      CHECK_STR(l[2], "");
+      CHECK_STR(l[3], "gamma");
+      CHECK(l[4] == NULL);
+  }
+  free_lines(l, n);
+  write_file("t2.txt", "");
+  l = read_lines("t2.txt", &n);
+  CHECK_INT(n, 0);
+  CHECK(l != NULL && l[0] == NULL);
+  free_lines(l, n);
+  write_file("t3.txt", "one\n");
+  l = read_lines("t3.txt", &n);
+  CHECK_INT(n, 1);
+  if (l && n == 1) CHECK_STR(l[0], "one");
+  free_lines(l, n);
+  char *big = malloc(10006);
+  memset(big, 'x', 10000);
+  memcpy(big + 10000, "\nend\n", 6);
+  write_file("t4.txt", big);
+  free(big);
+  l = read_lines("t4.txt", &n);
+  CHECK_INT(n, 2);
+  if (l && n == 2) {
+      CHECK_INT(strlen(l[0]), 10000);
+      CHECK_STR(l[1], "end");
+  }
+  free_lines(l, n);
+  CHECK(read_lines("missing-file.txt", &n) == NULL);
+  CHECK_INT(n, 0);
+  CHECK(read_lines(NULL, &n) == NULL);
+fuzz: |
+  char *text = segv_rand_str(60, "ab\n");
+  write_file("fz.txt", text);
+  size_t n = 0;
+  char **l = read_lines("fz.txt", &n);
+  if (l) {
+      size_t len = strlen(text), pos = 0;
+      int ok = 1;
+      for (size_t i = 0; i < n && ok; i++) {
+          size_t m = strlen(l[i]);
+          ok = pos + m <= len && memcmp(text + pos, l[i], m) == 0;
+          pos += m;
+          if (ok && pos < len) ok = text[pos++] == '\n';
+      }
+      CHECK(ok && pos == len && l[n] == NULL);
+      free_lines(l, n);
+  }
+  free(text);
+perf: |
+  FILE *f = fopen("perf.txt", "wb");
+  for (long i = 0; i < N; i++) fputs("abcdefg\n", f);
+  fclose(f);
+  size_t n = 0;
+  char **l = read_lines("perf.txt", &n);
+  free_lines(l, n);
+  segv_sink += (long)n;
+perf_n0: 1000
+variants:
+  - kind: leak
+    note: never closes the file
+    code: |
+      #include <stdio.h>
+      #include <stdlib.h>
+      #include <string.h>
+
+      char **read_lines(const char *path, size_t *count) {
+          if (count) *count = 0;
+          if (!path || !count) return NULL;
+          FILE *f = fopen(path, "rb");
+          if (!f) return NULL;
+          size_t cap = 16, n = 0, len = 0, lcap = 64;
+          char **lines = malloc(cap * sizeof *lines);
+          char *line = malloc(lcap);
+          if (!lines || !line) {
+              free(lines);
+              free(line);
+              return NULL;
+          }
+          int c;
+          while ((c = fgetc(f)) != EOF) {
+              if (len + 1 >= lcap) {
+                  lcap *= 2;
+                  line = realloc(line, lcap);
+              }
+              if (c != '\n') {
+                  line[len++] = (char)c;
+                  continue;
+              }
+              line[len] = '\0';
+              if (n + 1 >= cap) {
+                  cap *= 2;
+                  lines = realloc(lines, cap * sizeof *lines);
+              }
+              lines[n++] = strdup(line);
+              len = 0;
+          }
+          if (len) {
+              line[len] = '\0';
+              if (n + 1 >= cap) {
+                  cap *= 2;
+                  lines = realloc(lines, cap * sizeof *lines);
+              }
+              lines[n++] = strdup(line);
+          }
+          free(line);
+          lines[n] = NULL;
+          *count = n;
+          return lines;
+      }
+  - kind: bug
+    note: reads into a fixed 256-byte buffer with fgets, splitting long lines
+    code: |
+      #include <stdio.h>
+      #include <stdlib.h>
+      #include <string.h>
+
+      char **read_lines(const char *path, size_t *count) {
+          if (count) *count = 0;
+          if (!path || !count) return NULL;
+          FILE *f = fopen(path, "r");
+          if (!f) return NULL;
+          char **lines = malloc(sizeof *lines);
+          size_t n = 0;
+          char line[256];
+          while (fgets(line, sizeof line, f)) {
+              line[strcspn(line, "\n")] = '\0';
+              char **nl = realloc(lines, (n + 2) * sizeof *lines);
+              if (!nl) break;
+              lines = nl;
+              lines[n++] = strdup(line);
+          }
+          lines[n] = NULL;
+          fclose(f);
+          *count = n;
+          return lines;
+      }

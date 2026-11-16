@@ -1,0 +1,193 @@
+id: most_frequent_word
+title: Most frequent word
+tags: [strings, hashing, performance]
+requirement: |
+  Write a C function that returns the most frequent word in `text`. A word
+  is a maximal run of ASCII letters; words are compared case-insensitively.
+  If several words are equally frequent, return the one that appears first.
+  Return a newly allocated lowercase copy of the word, or NULL if `text` is
+  NULL, contains no words, or allocation fails. The caller frees the result.
+  Texts can be megabytes long, so it must run in about linear time.
+signature: char *most_frequent_word(const char *text);
+complexity: 1
+reference: |
+  #include <ctype.h>
+  #include <stdlib.h>
+  #include <string.h>
+
+  typedef struct {
+      size_t start, len, count, first;
+  } Entry;
+
+  static size_t hash_word(const char *s, size_t len) {
+      size_t h = 1469598103934665603ULL;
+      for (size_t i = 0; i < len; i++) {
+          h ^= (size_t)tolower((unsigned char)s[i]);
+          h *= 1099511628211ULL;
+      }
+      return h;
+  }
+
+  static int same_word(const char *a, const char *b, size_t len) {
+      for (size_t i = 0; i < len; i++)
+          if (tolower((unsigned char)a[i]) != tolower((unsigned char)b[i])) return 0;
+      return 1;
+  }
+
+  char *most_frequent_word(const char *text) {
+      if (!text) return NULL;
+      size_t n = strlen(text), words = 0;
+      for (size_t i = 0; i < n; i++)
+          if (isalpha((unsigned char)text[i]) && (i == 0 || !isalpha((unsigned char)text[i - 1]))) words++;
+      if (words == 0) return NULL;
+      size_t cap = 16;
+      while (cap < 2 * words) cap *= 2;
+      Entry *tab = calloc(cap, sizeof *tab);
+      if (!tab) return NULL;
+      Entry *best = NULL;
+      size_t order = 0;
+      for (size_t i = 0; i < n;) {
+          if (!isalpha((unsigned char)text[i])) {
+              i++;
+              continue;
+          }
+          size_t j = i;
+          while (j < n && isalpha((unsigned char)text[j])) j++;
+          size_t len = j - i, h = hash_word(text + i, len) & (cap - 1);
+          while (tab[h].len && !(tab[h].len == len && same_word(text + tab[h].start, text + i, len)))
+              h = (h + 1) & (cap - 1);
+          if (!tab[h].len) tab[h] = (Entry){i, len, 0, order++};
+          tab[h].count++;
+          if (!best || tab[h].count > best->count ||
+              (tab[h].count == best->count && tab[h].first < best->first))
+              best = &tab[h];
+          i = j;
+      }
+      char *out = malloc(best->len + 1);
+      if (out) {
+          for (size_t k = 0; k < best->len; k++) out[k] = (char)tolower((unsigned char)text[best->start + k]);
+          out[best->len] = '\0';
+      }
+      free(tab);
+      return out;
+  }
+helpers: |
+  #include <strings.h>
+
+  static size_t count_word(const char *t, const char *w) {
+      size_t c = 0, n = strlen(w);
+      for (size_t i = 0; t[i];) {
+          if (!isalpha((unsigned char)t[i])) {
+              i++;
+              continue;
+          }
+          size_t j = i;
+          while (isalpha((unsigned char)t[j])) j++;
+          if (j - i == n && strncasecmp(t + i, w, n) == 0) c++;
+          i = j;
+      }
+      return c;
+  }
+tests: |
+  char *r;
+  r = most_frequent_word("the cat and the hat");
+  CHECK_STR(r, "the");
+  free(r);
+  r = most_frequent_word("B a b A");
+  CHECK_STR(r, "b");
+  free(r);
+  r = most_frequent_word("Hello, hello; HELLO world");
+  CHECK_STR(r, "hello");
+  free(r);
+  r = most_frequent_word("x");
+  CHECK_STR(r, "x");
+  free(r);
+  r = most_frequent_word("one two three");
+  CHECK_STR(r, "one");
+  free(r);
+  CHECK(most_frequent_word("!!! 123") == NULL);
+  CHECK(most_frequent_word("") == NULL);
+  CHECK(most_frequent_word(NULL) == NULL);
+fuzz: |
+  char *t = segv_rand_str(40, "abAB .");
+  char *r = most_frequent_word(t);
+  int has_word = 0;
+  for (char *p = t; *p; p++) has_word |= isalpha((unsigned char)*p) != 0;
+  CHECK((r != NULL) == (has_word != 0));
+  if (r) {
+      size_t best = count_word(t, r);
+      for (size_t i = 0; t[i];) {
+          if (!isalpha((unsigned char)t[i])) {
+              i++;
+              continue;
+          }
+          size_t j = i;
+          while (isalpha((unsigned char)t[j])) j++;
+          char w[64];
+          size_t len = j - i < 63 ? j - i : 63;
+          memcpy(w, t + i, len);
+          w[len] = 0;
+          CHECK(count_word(t, w) <= best);
+          i = j;
+      }
+      free(r);
+  }
+  free(t);
+perf: |
+  char *t = malloc((size_t)N * 7 + 1);
+  size_t o = 0;
+  for (long i = 0; i < N; i++) {
+      long len = segv_rand_int(1, 6);
+      for (long k = 0; k < len; k++) t[o++] = (char)('a' + segv_rand_int(0, 9));
+      t[o++] = ' ';
+  }
+  t[o] = 0;
+  char *r = most_frequent_word(t);
+  if (r) segv_sink += r[0];
+  free(r);
+  free(t);
+perf_n0: 1000
+variants:
+  - kind: overuse
+    note: recounts every word by scanning the whole text again (O(n^2))
+    code: |
+      #include <ctype.h>
+      #include <stdlib.h>
+      #include <string.h>
+      #include <strings.h>
+
+      char *most_frequent_word(const char *text) {
+          if (!text) return NULL;
+          size_t n = strlen(text), best_start = 0, best_len = 0, best_count = 0;
+          for (size_t i = 0; i < n;) {
+              if (!isalpha((unsigned char)text[i])) {
+                  i++;
+                  continue;
+              }
+              size_t j = i;
+              while (j < n && isalpha((unsigned char)text[j])) j++;
+              size_t count = 0;
+              for (size_t a = 0; a < n;) {
+                  if (!isalpha((unsigned char)text[a])) {
+                      a++;
+                      continue;
+                  }
+                  size_t b = a;
+                  while (b < n && isalpha((unsigned char)text[b])) b++;
+                  if (b - a == j - i && strncasecmp(text + a, text + i, j - i) == 0) count++;
+                  a = b;
+              }
+              if (count > best_count) {
+                  best_count = count;
+                  best_start = i;
+                  best_len = j - i;
+              }
+              i = j;
+          }
+          if (!best_count) return NULL;
+          char *out = malloc(best_len + 1);
+          if (!out) return NULL;
+          for (size_t k = 0; k < best_len; k++) out[k] = (char)tolower((unsigned char)text[best_start + k]);
+          out[best_len] = '\0';
+          return out;
+      }

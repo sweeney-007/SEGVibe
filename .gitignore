@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+runs/*
+!runs/.gitkeep
+.DS_Store
+*.dSYM/
+
+# local plans and notes, never published
+private/
+
+# downloaded on demand (uv run python -m segvibe.rag.kb) and embedding cache
+data/cwec*
+data/emb_*.npy
