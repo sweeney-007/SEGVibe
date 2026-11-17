@@ -21,6 +21,44 @@ The name comes from SIGSEGV, the "segmentation fault" signal, plus "vibe
 coding". The point is that generated code can pass its tests and still
 segfault, leak or slow to a crawl in production.
 
+## Why this matters
+
+AI assistants now write a large share of new code, and much of the
+world's infrastructure is still C and C++. In those languages the
+dangerous bugs are the ones tests do not see: around
+[70% of serious security bugs in Chromium](https://www.chromium.org/Home/chromium-security/memory-safety/)
+are memory-safety problems. A generated function can return the right
+answer on every test and still overflow a buffer, leak on an error path or
+take quadratic time. SEGVibe asks what it takes to catch those problems
+automatically, how much each kind of check contributes, and whether the
+findings can teach the model to fix them.
+
+The same ideas run through recent AI research:
+
+- **Verifiers as the source of truth.** Reasoning models such as
+  [DeepSeek-R1](https://arxiv.org/abs/2501.12948) are trained with rewards
+  that come from checking answers, including running code against tests.
+  A layered checker like this one is that kind of verifier, made harder to
+  game: code that passes the tests but leaks or overflows still fails.
+- **Execution feedback for code agents.**
+  [Self-Debug](https://arxiv.org/abs/2304.05128),
+  [Reflexion](https://arxiv.org/abs/2303.11366) and
+  [AlphaCodium](https://arxiv.org/abs/2401.08500) improve code by feeding
+  test results back to the model. SEGVibe feeds back sanitizer, fuzzer,
+  analyzer and profiler findings with line numbers, and keeps a regression
+  guard so a "fix" cannot make things worse.
+- **AI for finding vulnerabilities.** Google's
+  [Big Sleep agent found an exploitable bug in SQLite](https://googleprojectzero.blogspot.com/2024/10/from-naptime-to-big-sleep.html),
+  [OSS-Fuzz uses LLMs to write fuzz targets](https://security.googleblog.com/2023/08/ai-powered-fuzzing-breaking-bug-hunting.html),
+  and DARPA's [AI Cyber Challenge](https://aicyberchallenge.com/) pairs
+  LLMs with fuzzers and analyzers to find and patch bugs.
+- **Learning from your own verified outputs.**
+  [STaR](https://arxiv.org/abs/2203.14465) and
+  [ReST](https://arxiv.org/abs/2308.08998) fine-tune a model on its own
+  answers that pass a check. SEGVibe includes that loop for C code; with a
+  1.5B model it found too few clean samples to learn from, which shows the
+  method's main precondition (see the results).
+
 A real agent run with a small local model (Qwen2.5-Coder-1.5B on CPU). It shows the checks and the
 regression guard at work, and also that a 1.5B model is too weak to finish the job:
 
