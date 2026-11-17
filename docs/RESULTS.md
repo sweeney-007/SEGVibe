@@ -150,3 +150,36 @@ probe and refine never ran with the real model. Those steps are covered only by 
 
 A stronger model (`--model groq:llama-3.3-70b-versatile`, or a 7B+ coder model on a GPU) is needed to
 show the review, probe and refine steps on real output. Logs: `runs/agent_*.log`.
+
+## 5. On-policy self-distillation: stopped at the data-collection step
+
+The idea: the model samples solutions, the checker keeps the clean ones, failing samples get one repair
+attempt with the checker's findings as hints, and the clean results are used to fine-tune the model
+(LoRA) on the **plain** prompt. The model learns to write, without hints, what it wrote with them. Then
+repeat with the new model. Code: `segvibe/distill/core.py` (selection, metrics; tested in
+`tests/test_distill.py`) and `scripts/distill_modal.py` (vLLM sampling and LoRA training on an NVIDIA L4,
+checks in parallel CPU containers on Ubuntu 24.04 + clang 18, the CI toolchain). Split: 11 training
+tasks, 6 held out (every third task by id).
+
+The pipeline ran end to end: all 17 references pass the cloud checker, sampling, checking and the
+hinted repairs worked. But the base model, Qwen2.5-Coder-1.5B-Instruct sampled at temperature 0.8,
+produced almost no clean code to learn from:
+
+| Run | Samples | Compiled | Tests pass | Clean |
+|---|---|---|---|---|
+| all 17 tasks, 4 samples each (checked locally) | 68 | 45 | 5 | **2** (one task) |
+| round 1, training tasks, 4 samples each | 44 | | | **4** (one task) |
+| round 1, hinted repairs of the failing samples | 40 | | | **0** |
+| held-out tasks, 4 samples each | 24 | 58% | 0 | 0 |
+
+First finding per sample (68 samples): compile error 23, heap buffer overflow 11, memory leak 7, wrong
+result 6, then SEGV, global buffer overflow and timeouts. Samples that included a `main()` despite the
+prompt were not the problem: removing it changed one compile result and no test outcome.
+
+- **Verdict: self-distillation needs a base model that already succeeds sometimes.** With 2–4 clean
+  samples out of 44–68, all on one task, the training set would teach one task and nothing else. The run
+  was stopped there rather than spend GPU time fine-tuning on it.
+- **What would make it work:** a stronger base model, such as Qwen2.5-Coder-7B-Instruct (fits an L4 for
+  sampling; LoRA training would likely need 4-bit QLoRA), and a larger task set than 17.
+- **A checker bug the samples found:** a generated program printed bytes that are not valid UTF-8, and
+  reading its output crashed the checker. Program output is now decoded with replacement characters.

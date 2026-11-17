@@ -144,6 +144,9 @@ algorithms where the naive version is quadratic (`unique_ints`,
   be conclusive (p ≈ 0.18).
 - **Agent:** with the 1.5B local model, neither of two runs got past the fix step; the regression guard
   rejected every worse version. The review, probe and refine steps are tested with a scripted model only.
+- **Self-distillation:** a pipeline that fine-tunes the model on its own checker-approved code (plus
+  repairs made with the findings as hints) runs end to end on cloud GPUs, but the 1.5B model produced
+  only 2 clean samples out of 68, too few to train on. A stronger base model (7B) is needed.
 
 ## Run it
 
@@ -171,6 +174,8 @@ uv run python scripts/eval_detect.py       # which layer catches which defect
 uv run python scripts/eval_retrieval.py    # what each retrieval stage adds
 uv run python scripts/eval_repair_rag.py --model hf:Qwen/Qwen2.5-Coder-1.5B-Instruct --configs none full
 uv run python scripts/eval_generate.py --model hf:Qwen/Qwen2.5-Coder-1.5B-Instruct
+
+modal run scripts/distill_modal.py --seed 0   # self-distillation on Modal GPUs (needs a Modal account)
 ```
 
 `segvibe new` is the open-ended mode. With no hidden tests, the model also
@@ -203,8 +208,10 @@ segvibe/
   rag/                knowledge base (CWE, recipes, repair memory) and retrieval pipeline
   freeform.py         requirement -> tests + code, no hidden tests
   inject.py           bug injection for the detection eval
+  distill/            self-distillation: example selection, pass@k / clean@k, diversity
 tasks/*.yaml          benchmark tasks
-scripts/              validate_tasks, eval_detect, eval_generate, eval_retrieval, eval_repair_rag
+scripts/              validate_tasks, eval_detect, eval_generate, eval_retrieval, eval_repair_rag,
+                      distill_modal (self-distillation on Modal)
 ```
 
 MIT license.

@@ -120,7 +120,7 @@ def run(workdir: Path, profile: str, args: list[str], timeout: float, env: dict 
     on the machine's `ulimit -s`."""
     exe = workdir / f"h_{profile}"
     full_env = {**os.environ, **ENV, **(env or {})}
-    p = subprocess.Popen([str(exe), *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    p = subprocess.Popen([str(exe), *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors="replace",
                          env=full_env, cwd=workdir, start_new_session=True,
                          preexec_fn=_stack_limit(stack_bytes) if stack_bytes else None)
     try:
